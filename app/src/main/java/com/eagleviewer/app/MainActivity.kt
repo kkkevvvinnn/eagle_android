@@ -1,0 +1,87 @@
+package com.eagleviewer.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.eagleviewer.app.ui.DetailScreen
+import com.eagleviewer.app.ui.EagleTheme
+import com.eagleviewer.app.ui.GridScreen
+import com.eagleviewer.app.ui.GridViewModel
+import com.eagleviewer.app.ui.LibrarySetupScreen
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        val container = (application as EagleApp).container
+        setContent {
+            EagleTheme {
+                AppNavHost(container)
+            }
+        }
+    }
+}
+
+@Composable
+fun AppNavHost(container: AppContainer) {
+    val nav: NavHostController = rememberNavController()
+    // null = DataStore 尚未读出；"" = 未设置图库
+    val libraryUri by container.settings.libraryUri.collectAsState(initial = null)
+
+    // activity 作用域的共享 ViewModel：网格页与大图页共用同一份筛选结果与分页数据
+    val gridVm: GridViewModel = viewModel(factory = GridViewModel.factory(container))
+
+    when (val uri = libraryUri) {
+        null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        else -> NavHost(
+            navController = nav,
+            startDestination = if (uri.isEmpty()) "setup" else "grid",
+        ) {
+            composable("setup") {
+                LibrarySetupScreen(
+                    container = container,
+                    onDone = {
+                        nav.navigate("grid") { popUpTo("setup") { inclusive = true } }
+                    },
+                )
+            }
+            composable("grid") {
+                GridScreen(
+                    vm = gridVm,
+                    onOpenDetail = { index -> nav.navigate("detail/$index") },
+                    onChangeLibrary = {
+                        nav.navigate("setup")
+                    },
+                )
+            }
+            composable(
+                route = "detail/{index}",
+                arguments = listOf(navArgument("index") { type = NavType.IntType }),
+            ) { entry ->
+                DetailScreen(
+                    vm = gridVm,
+                    startIndex = entry.arguments?.getInt("index") ?: 0,
+                    onBack = { nav.popBackStack() },
+                )
+            }
+        }
+    }
+}
