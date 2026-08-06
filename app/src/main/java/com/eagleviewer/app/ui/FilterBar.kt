@@ -2,6 +2,7 @@ package com.eagleviewer.app.ui
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -102,19 +103,22 @@ fun FilterBar(
 @Composable
 private fun SortMenu(current: Sort, onSortChange: (Sort) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    TextButton(onClick = { expanded = true }) {
-        Text(current.label)
-        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        Sort.entries.forEach { sort ->
-            DropdownMenuItem(
-                text = { Text(sort.label) },
-                onClick = {
-                    onSortChange(sort)
-                    expanded = false
-                },
-            )
+    // 必须用 Box 包裹，否则菜单锚定到外层 Row（出现在屏幕左侧而非按钮下方）
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(current.label)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Sort.entries.forEach { sort ->
+                DropdownMenuItem(
+                    text = { Text(sort.label) },
+                    onClick = {
+                        onSortChange(sort)
+                        expanded = false
+                    },
+                )
+            }
         }
     }
 }

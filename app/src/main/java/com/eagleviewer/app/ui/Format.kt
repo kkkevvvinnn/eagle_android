@@ -13,3 +13,9 @@ fun formatSize(bytes: Long): String = when {
 fun formatTime(epochMs: Long): String =
     if (epochMs <= 0) "-"
     else SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(epochMs))
+
+/** 从 SAF tree URI 提取可读的目录名（如 "primary:Pictures/我的灵感.library" → "我的灵感.library"）。 */
+fun libraryDisplayName(uri: String): String = runCatching {
+    val decoded = android.net.Uri.decode(uri)
+    decoded.substringAfterLast('/').substringAfterLast(':').ifBlank { decoded }
+}.getOrElse { uri }

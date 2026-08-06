@@ -24,6 +24,7 @@ import com.eagleviewer.app.ui.EagleTheme
 import com.eagleviewer.app.ui.GridScreen
 import com.eagleviewer.app.ui.GridViewModel
 import com.eagleviewer.app.ui.LibrarySetupScreen
+import com.eagleviewer.app.ui.SettingsScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,9 +68,13 @@ fun AppNavHost(container: AppContainer) {
                 GridScreen(
                     vm = gridVm,
                     onOpenDetail = { index -> nav.navigate("detail/$index") },
-                    onChangeLibrary = {
-                        nav.navigate("setup")
-                    },
+                    onOpenSettings = { nav.navigate("settings") },
+                )
+            }
+            composable("settings") {
+                SettingsScreen(
+                    vm = gridVm,
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable(

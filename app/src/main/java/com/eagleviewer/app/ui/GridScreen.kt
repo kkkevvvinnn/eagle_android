@@ -74,7 +74,7 @@ import kotlinx.coroutines.launch
 fun GridScreen(
     vm: GridViewModel,
     onOpenDetail: (Int) -> Unit,
-    onChangeLibrary: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -157,8 +157,8 @@ fun GridScreen(
                                 Icon(Icons.Default.Refresh, contentDescription = "重新扫描")
                             }
                         }
-                        IconButton(onClick = onChangeLibrary) {
-                            Icon(Icons.Default.Settings, contentDescription = "更换图库")
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "设置")
                         }
                     },
                 )

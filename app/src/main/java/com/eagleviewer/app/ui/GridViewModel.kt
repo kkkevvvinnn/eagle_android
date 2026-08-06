@@ -52,6 +52,14 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     val itemCount: StateFlow<Int> = container.items.itemCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    /** 已添加的图库 URI 列表。 */
+    val libraries: StateFlow<List<String>> = container.settings.libraries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 当前激活的图库 URI。 */
+    val activeLibraryUri: StateFlow<String> = container.settings.libraryUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     val scanState = MutableStateFlow<ScanUiState>(ScanUiState.Idle)
 
     init {
@@ -117,8 +125,25 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     fun onLibraryPicked(uri: String) {
         viewModelScope.launch {
             container.settings.setLibraryUri(uri)
+            container.settings.addLibrary(uri)
             runScan(uri)
         }
+    }
+
+    /** 设置页添加新图库并切换过去。 */
+    fun addLibrary(uri: String) = onLibraryPicked(uri)
+
+    /** 切换到已添加的另一个图库，并对新目录执行增量扫描重建索引。 */
+    fun switchLibrary(uri: String) {
+        if (uri == activeLibraryUri.value) return
+        viewModelScope.launch {
+            container.settings.setLibraryUri(uri)
+            runScan(uri)
+        }
+    }
+
+    fun removeLibrary(uri: String) {
+        viewModelScope.launch { container.settings.removeLibrary(uri) }
     }
 
     suspend fun runScan(uri: String) {
