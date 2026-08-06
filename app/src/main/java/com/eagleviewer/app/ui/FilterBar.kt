@@ -1,5 +1,6 @@
 package com.eagleviewer.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
@@ -36,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,23 @@ fun FilterBar(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 相似配色检索激活时，最前面显示色点 chip，点击退出
+        filter.similarColor?.let { color ->
+            FilterChip(
+                selected = true,
+                onClick = { onFilterChange { it.copy(similarColor = null) } },
+                label = { Text("相似配色") },
+                leadingIcon = {
+                    Box(
+                        Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(Color(color)),
+                    )
+                },
+            )
+            Spacer(Modifier.width(6.dp))
+        }
         if (filter.untaggedOnly) {
             FilterChip(
                 selected = true,
@@ -238,8 +258,8 @@ private fun TagSheet(
                             onClick = {
                                 onFilterChange { f ->
                                     val next = if (selected) f.tags - tc.tag else f.tags + tc.tag
-                                    // 选中任一标签即退出「未标记」模式（二者互斥）
-                                    f.copy(tags = next, untaggedOnly = false)
+                                    // 选中任一标签即退出「未标记」与「相似配色」模式（互斥）
+                                    f.copy(tags = next, untaggedOnly = false, similarColor = null)
                                 }
                             },
                             label = { Text("${tc.tag} (${tc.cnt})") },

@@ -49,4 +49,8 @@ interface ItemDao {
     /** 分享多选图片时按 id 取原图 URI。 */
     @Query("SELECT imageUri FROM items WHERE id IN (:ids)")
     suspend fun imageUrisFor(ids: List<String>): List<String>
+
+    /** 颜色相似度检索：取全部条目的色板数据在内存中排序。 */
+    @Query("SELECT id, palettesJson FROM items")
+    suspend fun allPalettes(): List<IdPalettes>
 }

@@ -86,6 +86,12 @@ fun AppNavHost(container: AppContainer) {
                     vm = gridVm,
                     startIndex = entry.arguments?.getInt("index") ?: 0,
                     onBack = { nav.popBackStack() },
+                    onFindSimilar = { color ->
+                        gridVm.updateFilter { f ->
+                            f.copy(tags = emptySet(), untaggedOnly = false, similarColor = color)
+                        }
+                        nav.popBackStack()
+                    },
                 )
             }
         }

@@ -187,7 +187,9 @@ fun GridScreen(
             )
 
             when {
-                items.loadState.refresh is LoadState.Loading -> {
+                // 仅在没有任何数据时显示转圈；已有数据时刷新在后台进行，
+                // 避免筛选变化时网格与转圈来回切换造成的「双闪」
+                items.itemCount == 0 && items.loadState.refresh is LoadState.Loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
@@ -275,13 +277,6 @@ fun GridScreen(
                                     data = data,
                                     selectionMode = selectionMode,
                                     selected = data.item.id in selection,
-                                    // 不做位移动画（懒加载网格对未组合项无效，观感割裂），
-                                    // 列数切换由整体淡入遮盖；新进项淡入
-                                    modifier = Modifier.animateItem(
-                                        fadeInSpec = tween(200),
-                                        placementSpec = null,
-                                        fadeOutSpec = tween(200),
-                                    ),
                                     onClick = {
                                         if (selectionMode) vm.toggleSelection(data.item.id)
                                         else onOpenDetail(index)
@@ -369,7 +364,6 @@ private fun GridCell(
     data: ItemWithTags,
     selectionMode: Boolean,
     selected: Boolean,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -381,9 +375,18 @@ private fun GridCell(
         ?: MaterialTheme.colorScheme.surfaceVariant
     // 缩略图缺失/损坏时降级加载原图
     var useOriginal by remember(item.id) { mutableStateOf(false) }
+    // 网格滚动性能：不做 crossfade 动画，解码尺寸限定在缩略图级别
+    val context = LocalContext.current
+    val imageRequest = remember(item.id, useOriginal) {
+        ImageRequest.Builder(context)
+            .data(if (useOriginal) item.imageUri else item.thumbUri ?: item.imageUri)
+            .size(360)
+            .crossfade(false)
+            .build()
+    }
 
     Box(
-        modifier
+        Modifier
             .fillMaxWidth()
             .aspectRatio(ratio)
             .clip(RoundedCornerShape(12.dp))
@@ -391,10 +394,7 @@ private fun GridCell(
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(if (useOriginal) item.imageUri else item.thumbUri ?: item.imageUri)
-                .crossfade(true)
-                .build(),
+            model = imageRequest,
             contentDescription = item.name,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,

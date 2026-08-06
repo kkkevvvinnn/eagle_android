@@ -70,3 +70,9 @@ data class TagCount(
     val tag: String,
     val cnt: Int,
 )
+
+/** 颜色相似度检索用的轻量投影。 */
+data class IdPalettes(
+    val id: String,
+    val palettesJson: String,
+)

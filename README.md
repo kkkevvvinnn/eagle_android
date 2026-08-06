@@ -1,12 +1,14 @@
 # Eagle 图库浏览器（Android）
 
+[![Android CI](https://github.com/kkkevvvinnn/eagle_android/actions/workflows/android-ci.yml/badge.svg)](https://github.com/kkkevvvinnn/eagle_android/actions/workflows/android-ci.yml)
+
 在安卓设备上本地浏览由 [Eagle](https://eagle.cool/) 素材管理软件导出的 `.library` 图库。将电脑上的图库目录通过任意同步工具（如 Syncthing、Resilio Sync、网盘同步等）原样同步到手机后，用本应用选择该目录即可离线浏览，所有数据均在本地处理。
 
 ## 功能
 
 - **本地索引**：基于图库根目录 `mtime.json` 的增量扫描，只重读变化的条目元数据，避免每次启动全量遍历；回收站（`isDeleted`）条目自动跳过
 - **多图库**：可添加多个 `.library` 目录，在设置页一键切换
-- **筛选**：标签多选（与/或）、未标记图片、评分下限、文件名搜索，六种排序；筛选状态自动记忆
+- **筛选**：标签多选（与/或）、未标记图片、评分下限、文件名搜索，六种排序；筛选状态自动记忆；大图信息面板点色卡可按主色找相似图
 - **瀑布流网格**：按元数据宽高比占位，直接使用 Eagle 生成的缩略图（缺失时自动降级原图），主色板底色，双指捏合在 2–4 列间切换
 - **大图查看**：左右滑动切换、双指缩放、平移（带边界约束）、双击以点击位置为中心放大；信息面板展示尺寸、大小、添加时间、星级、标签与主色板
 - **多选分享**：长按进入多选，通过系统分享面板批量分享原图
@@ -43,6 +45,17 @@ xxx.library/
 ```
 
 需要 JDK 17 与 Android SDK（`local.properties` 中配置 `sdk.dir`）。
+
+## 持续集成与发版
+
+- 推送到 `main` 或发起 PR 时，GitHub Actions 自动构建 debug APK 并运行单元测试
+- 推送形如 `v1.6.0` 的 tag 会自动构建**正式签名的 release APK** 并发布到 [GitHub Releases](https://github.com/kkkevvvinnn/eagle_android/releases)：
+
+```bash
+git tag v1.6.0 && git push origin v1.6.0
+```
+
+Release 签名密钥通过仓库 Secrets 注入（`RELEASE_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_PASSWORD` / `RELEASE_KEY_ALIAS` / `RELEASE_KEY_PASSWORD`），本地 `release.keystore` 与密码文件已列入 `.gitignore`，请务必离线备份且不要提交入库。
 
 ## 开源协议
 

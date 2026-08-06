@@ -1,10 +1,13 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.plugin.serialization")
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
+
+// Release 签名：CI 通过环境变量注入，本地无环境变量时回退到 debug 签名
+val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
 
 android {
     namespace = "com.eagleviewer.app"
@@ -14,14 +17,30 @@ android {
         applicationId = "com.eagleviewer.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.5.0"
+        versionCode = 9
+        versionName = "1.6.0"
+    }
+
+    signingConfigs {
+        if (releaseKeystorePath != null && File(releaseKeystorePath).exists()) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = if (releaseKeystorePath != null && File(releaseKeystorePath).exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
@@ -38,33 +57,32 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.06.01")
-    implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
-    implementation("androidx.navigation:navigation-compose:2.9.3")
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons)
+    implementation(libs.activity.compose)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.navigation.compose)
 
-    implementation("androidx.room:room-runtime:2.7.2")
-    implementation("androidx.room:room-ktx:2.7.2")
-    implementation("androidx.room:room-paging:2.7.2")
-    ksp("androidx.room:room-compiler:2.7.2")
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    implementation(libs.room.paging)
+    ksp(libs.room.compiler)
 
-    implementation("androidx.paging:paging-runtime:3.3.6")
-    implementation("androidx.paging:paging-compose:3.3.6")
+    implementation(libs.paging.runtime)
+    implementation(libs.paging.compose)
 
-    implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("io.coil-kt:coil-gif:2.7.0")
+    implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
 
-    implementation("androidx.datastore:datastore-preferences:1.1.7")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation(libs.datastore.preferences)
+    implementation(libs.kotlinx.serialization.json)
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation(libs.compose.ui.tooling)
 
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
 }

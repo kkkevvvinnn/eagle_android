@@ -9,6 +9,8 @@ import com.eagleviewer.app.data.db.AppDatabase
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -29,28 +31,86 @@ data class Filter(
     val sort: Sort = Sort.BTIME_DESC,
     val nameQuery: String = "",
     val untaggedOnly: Boolean = false,
+    /** 相似配色检索的目标颜色（RGB int），非空时按色板距离排序，忽略其他条件。 */
+    val similarColor: Int? = null,
 )
 
-/** 基于 Room 索引的查询仓库：动态组装筛选 SQL（标签与/或、评分、排序）。 */
+/** 基于 Room 索引的查询仓库：动态组装筛选 SQL（标签与/或、评分、排序、相似配色）。 */
 class ItemRepository(private val db: AppDatabase) {
 
-    fun pagedItems(filter: Filter): Flow<PagingData<ItemWithTags>> =
-        Pager(
-            config = PagingConfig(
-                pageSize = 60,
-                initialLoadSize = 120,
-                // 占位符模式：大图查看页需要按全局索引直接跳转到任意位置
-                enablePlaceholders = true,
-            ),
-        ) {
-            db.itemDao().pagedItems(buildQuery(filter))
-        }.flow
+    fun pagedItems(filter: Filter): Flow<PagingData<ItemWithTags>> = flow {
+        val query = if (filter.similarColor != null) {
+            buildSimilarQuery(rankBySimilarColor(filter.similarColor))
+        } else {
+            buildQuery(filter)
+        }
+        emitAll(
+            Pager(
+                config = PagingConfig(
+                    pageSize = 60,
+                    initialLoadSize = 120,
+                    // 占位符模式：大图查看页需要按全局索引直接跳转到任意位置
+                    enablePlaceholders = true,
+                ),
+            ) {
+                db.itemDao().pagedItems(query)
+            }.flow,
+        )
+    }
 
     fun tagCounts(): Flow<List<TagCount>> = db.itemDao().tagCounts()
 
     fun itemCount(): Flow<Int> = db.itemDao().itemCount()
 
+    /** 按色板与目标颜色的距离对全库排序，取前 [SIMILAR_LIMIT] 个 id。 */
+    private suspend fun rankBySimilarColor(color: Int): List<String> =
+        db.itemDao().allPalettes()
+            .map { it.id to paletteDistance(it.palettesJson, color) }
+            .filter { it.second < Double.MAX_VALUE }
+            .sortedBy { it.second }
+            .take(SIMILAR_LIMIT)
+            .map { it.first }
+
     companion object {
+        private const val SIMILAR_LIMIT = 150
+
+        /**
+         * 条目色板与目标颜色的距离：各色板颜色与目标的 RGB 欧氏距离的最小值。
+         * 无色板时返回 [Double.MAX_VALUE]（不参与相似配色结果）。
+         */
+        fun paletteDistance(palettesJson: String, color: Int): Double {
+            if (palettesJson.isEmpty()) return Double.MAX_VALUE
+            val palettes = runCatching {
+                EagleItemMeta.json.decodeFromString<List<EagleItemMeta.Palette>>(palettesJson)
+            }.getOrDefault(emptyList())
+            if (palettes.isEmpty()) return Double.MAX_VALUE
+            val tr = (color shr 16) and 0xFF
+            val tg = (color shr 8) and 0xFF
+            val tb = color and 0xFF
+            return palettes
+                .filter { it.color.size >= 3 }
+                .minOf { p ->
+                    val dr = p.color[0] - tr
+                    val dg = p.color[1] - tg
+                    val db = p.color[2] - tb
+                    kotlin.math.sqrt((dr * dr + dg * dg + db * db).toDouble())
+                }
+        }
+
+        /** 相似配色查询：按距离排序后的 id 列表用 CASE 保序。 */
+        fun buildSimilarQuery(rankedIds: List<String>): SupportSQLiteQuery {
+            if (rankedIds.isEmpty()) {
+                return SimpleSQLiteQuery("SELECT * FROM items WHERE 0")
+            }
+            val placeholders = rankedIds.joinToString(",") { "?" }
+            val caseOrder = rankedIds.indices.joinToString(" ") { "WHEN ? THEN $it" }
+            return SimpleSQLiteQuery(
+                "SELECT * FROM items WHERE id IN ($placeholders) " +
+                    "ORDER BY CASE id $caseOrder END",
+                (rankedIds + rankedIds).toTypedArray(),
+            )
+        }
+
         fun buildQuery(filter: Filter): SupportSQLiteQuery {
             val conditions = mutableListOf<String>()
             val args = mutableListOf<Any>()

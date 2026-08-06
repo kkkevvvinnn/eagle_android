@@ -9,3 +9,8 @@
 .cxx
 local.properties
 app/build/
+
+# Release 签名材料绝不能入库
+release.keystore
+*.keystore
+credentials*

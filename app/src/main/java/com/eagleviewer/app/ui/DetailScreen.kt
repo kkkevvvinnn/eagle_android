@@ -2,6 +2,7 @@ package com.eagleviewer.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ fun DetailScreen(
     vm: GridViewModel,
     startIndex: Int,
     onBack: () -> Unit,
+    onFindSimilar: (Int) -> Unit,
 ) {
     val items = vm.pagingData.collectAsLazyPagingItems()
     var showInfo by remember { mutableStateOf(false) }
@@ -120,6 +122,7 @@ fun DetailScreen(
                         data = data,
                         position = pagerState.currentPage + 1,
                         total = items.itemCount,
+                        onFindSimilar = onFindSimilar,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
@@ -158,6 +161,7 @@ private fun InfoPanel(
     data: ItemWithTags,
     position: Int,
     total: Int,
+    onFindSimilar: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val item = data.item
@@ -199,16 +203,24 @@ private fun InfoPanel(
         }
         if (data.palettes.isNotEmpty()) {
             Spacer(Modifier.padding(6.dp))
-            Text("主色板", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelMedium)
+            Text(
+                "主色板（点色卡找相似配色的图）",
+                color = Color(0xFFCCCCCC),
+                style = MaterialTheme.typography.labelMedium,
+            )
             Spacer(Modifier.padding(2.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 data.palettes.take(8).forEach { p ->
                     if (p.color.size >= 3) {
+                        val rgb = (p.color[0].coerceIn(0, 255) shl 16) or
+                            (p.color[1].coerceIn(0, 255) shl 8) or
+                            p.color[2].coerceIn(0, 255)
                         Box(
                             Modifier
                                 .size(26.dp)
                                 .clip(CircleShape)
                                 .background(Color(p.color[0], p.color[1], p.color[2]))
+                                .clickable { onFindSimilar(rgb) }
                         )
                     }
                 }
