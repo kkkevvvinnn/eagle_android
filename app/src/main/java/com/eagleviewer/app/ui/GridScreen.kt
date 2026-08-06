@@ -209,6 +209,12 @@ fun GridScreen(
                     ) { LazyStaggeredGridState() }
                     // 捏合过程中的整体缩放预览系数（1 = 无预览）
                     val pinchScale = remember { androidx.compose.animation.core.Animatable(1f) }
+                    // 列数切换重排时整体淡入：遮盖无法参与位移动画的新组合项的「突然出现」
+                    val gridAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
+                    LaunchedEffect(columnCount) {
+                        gridAlpha.snapTo(0.3f)
+                        gridAlpha.animateTo(1f, tween(180))
+                    }
 
                     PullToRefreshBox(
                         isRefreshing = scanState is ScanUiState.Running,
@@ -231,6 +237,7 @@ fun GridScreen(
                             .graphicsLayer {
                                 scaleX = pinchScale.value
                                 scaleY = pinchScale.value
+                                alpha = gridAlpha.value
                             }
                             // 双指捏合调节列数：张开=更大的图（列数-1），收拢=更多的图（列数+1）
                             .pointerInput(Unit) {
@@ -242,9 +249,9 @@ fun GridScreen(
                                         if (event.changes.size >= 2) {
                                             accumulated *= event.calculateZoom()
                                             event.changes.forEach { it.consume() }
-                                            // 手势期间即时更新预览缩放
+                                            // 手势期间即时更新预览缩放（收窄幅度，避免过于激烈）
                                             scope.launch {
-                                                pinchScale.snapTo(accumulated.coerceIn(0.5f, 1.6f))
+                                                pinchScale.snapTo(accumulated.coerceIn(0.7f, 1.4f))
                                             }
                                         }
                                     } while (event.changes.any { it.pressed })
@@ -292,7 +299,7 @@ fun GridScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1C202B))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
                                 )
                             }
                         }
@@ -374,7 +381,8 @@ private fun GridCell(
     val ratio = if (item.width > 0 && item.height > 0) {
         (item.width.toFloat() / item.height).coerceIn(0.4f, 2.5f)
     } else 1f
-    val placeholderColor = item.paletteColor?.let { Color(it) } ?: Color(0xFF1C202B)
+    val placeholderColor = item.paletteColor?.let { Color(it) }
+        ?: MaterialTheme.colorScheme.surfaceVariant
     // 缩略图缺失/损坏时降级加载原图
     var useOriginal by remember(item.id) { mutableStateOf(false) }
 
