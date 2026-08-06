@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.shape.CircleShape
@@ -41,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -140,7 +143,14 @@ fun GridScreen(
                     },
                 )
                 else -> TopAppBar(
-                    title = { Text("Eagle 图库 ($itemCount)") },
+                    title = {
+                        // 有筛选条件时显示「筛选结果数 / 总数」
+                        Text(
+                            if (filter != com.eagleviewer.app.data.Filter())
+                                "筛选 ${items.itemCount} / $itemCount"
+                            else "Eagle 图库 ($itemCount)"
+                        )
+                    },
                     actions = {
                         IconButton(onClick = { searchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "搜索")
@@ -187,58 +197,72 @@ fun GridScreen(
                         )
                     }
                 }
-                else -> LazyVerticalStaggeredGrid(
-                    columns = StaggeredGridCells.Fixed(columnCount),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // 双指捏合调节列数：张开=更大的图（列数-1），收拢=更多的图（列数+1）
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                var accumulated = 1f
-                                do {
-                                    val event = awaitPointerEvent()
-                                    if (event.changes.size >= 2) {
-                                        accumulated *= event.calculateZoom()
-                                        event.changes.forEach { it.consume() }
+                else -> {
+                    // 滚动位置记忆：从详情页返回时保持原位
+                    val gridState = rememberSaveable(
+                        saver = LazyStaggeredGridState.Saver,
+                    ) { LazyStaggeredGridState() }
+
+                    PullToRefreshBox(
+                        isRefreshing = scanState is ScanUiState.Running,
+                        onRefresh = { vm.rescan() },
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                    LazyVerticalStaggeredGrid(
+                        state = gridState,
+                        columns = StaggeredGridCells.Fixed(columnCount),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // 双指捏合调节列数：张开=更大的图（列数-1），收拢=更多的图（列数+1）
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    var accumulated = 1f
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        if (event.changes.size >= 2) {
+                                            accumulated *= event.calculateZoom()
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    } while (event.changes.any { it.pressed })
+                                    when {
+                                        accumulated > 1.3f -> vm.setColumnCount(columnCount - 1)
+                                        accumulated < 0.75f -> vm.setColumnCount(columnCount + 1)
                                     }
-                                } while (event.changes.any { it.pressed })
-                                when {
-                                    accumulated > 1.3f -> vm.setColumnCount(columnCount - 1)
-                                    accumulated < 0.75f -> vm.setColumnCount(columnCount + 1)
                                 }
+                            },
+                        contentPadding = PaddingValues(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalItemSpacing = 8.dp,
+                    ) {
+                        items(
+                            count = items.itemCount,
+                            key = items.itemKey { it.item.id },
+                        ) { index ->
+                            val data = items[index]
+                            if (data != null) {
+                                GridCell(
+                                    data = data,
+                                    selectionMode = selectionMode,
+                                    selected = data.item.id in selection,
+                                    onClick = {
+                                        if (selectionMode) vm.toggleSelection(data.item.id)
+                                        else onOpenDetail(index)
+                                    },
+                                    onLongClick = { vm.enterSelection(data.item.id) },
+                                )
+                            } else {
+                                // 占位符：未知尺寸，用方形占位
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF1C202B))
+                                )
                             }
-                        },
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalItemSpacing = 8.dp,
-                ) {
-                    items(
-                        count = items.itemCount,
-                        key = items.itemKey { it.item.id },
-                    ) { index ->
-                        val data = items[index]
-                        if (data != null) {
-                            GridCell(
-                                data = data,
-                                selectionMode = selectionMode,
-                                selected = data.item.id in selection,
-                                onClick = {
-                                    if (selectionMode) vm.toggleSelection(data.item.id)
-                                    else onOpenDetail(index)
-                                },
-                                onLongClick = { vm.enterSelection(data.item.id) },
-                            )
-                        } else {
-                            // 占位符：未知尺寸，用方形占位
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF1C202B))
-                            )
                         }
+                    }
                     }
                 }
             }
