@@ -33,6 +33,8 @@ class EagleScanner(
         val scanned: Int,
         val deleted: Int,
         val total: Int,
+        /** 图片本体文件未同步到本机的条目数（已跳过索引）。 */
+        val missing: Int = 0,
     )
 
     suspend fun scan(
@@ -60,6 +62,7 @@ class EagleScanner(
         }
 
         var scanned = 0
+        var missing = 0
         val batch = mutableListOf<ItemEntity>()
         val batchTags = mutableListOf<ItemTagCrossRef>()
         val skippedDeleted = mutableListOf<String>()
@@ -85,29 +88,37 @@ class EagleScanner(
                 skippedDeleted += id
                 if (indexed.containsKey(id)) dao.deleteItems(listOf(id))
             } else {
-                val imagePath = "images/$id.info/${meta.name}.${meta.ext}"
-                val thumbPath = "images/$id.info/${meta.name}_thumbnail.png"
-                batch += ItemEntity(
-                    id = meta.id,
-                    name = meta.name,
-                    ext = meta.ext,
-                    width = meta.width,
-                    height = meta.height,
-                    size = meta.size,
-                    star = meta.star.coerceIn(0, 5),
-                    btime = meta.btime,
-                    mtime = meta.mtime,
-                    lastModified = meta.lastModified,
-                    annotation = meta.annotation,
-                    url = meta.url,
-                    imageUri = docUri(imagePath).toString(),
-                    thumbUri = docUri(thumbPath).toString(),
-                    paletteColor = meta.primaryColor,
-                    palettesJson = if (meta.palettes.isEmpty()) ""
-                        else EagleItemMeta.json.encodeToString(meta.palettes),
-                )
-                batchTags += meta.tags.distinct().map { ItemTagCrossRef(meta.id, it) }
-                scanned++
+                val imageDocUri = docUri("images/$id.info/${meta.name}.${meta.ext}")
+                val thumbDocUri = docUri("images/$id.info/${meta.name}_thumbnail.png")
+                if (!exists(imageDocUri)) {
+                    // 图片本体未同步到本机（如源目录权限不足导致同步工具只拷了 JSON）。
+                    // 跳过不索引：由于 DB 中没有该 id，下次扫描 diff 会自动重试，同步补全后自愈。
+                    missing++
+                    if (indexed.containsKey(id)) dao.deleteItems(listOf(id))
+                } else {
+                    batch += ItemEntity(
+                        id = meta.id,
+                        name = meta.name,
+                        ext = meta.ext,
+                        width = meta.width,
+                        height = meta.height,
+                        size = meta.size,
+                        star = meta.star.coerceIn(0, 5),
+                        btime = meta.btime,
+                        mtime = meta.mtime,
+                        lastModified = meta.lastModified,
+                        annotation = meta.annotation,
+                        url = meta.url,
+                        imageUri = imageDocUri.toString(),
+                        // 缩略图缺失时存 null，网格直接加载原图
+                        thumbUri = if (exists(thumbDocUri)) thumbDocUri.toString() else null,
+                        paletteColor = meta.primaryColor,
+                        palettesJson = if (meta.palettes.isEmpty()) ""
+                            else EagleItemMeta.json.encodeToString(meta.palettes),
+                    )
+                    batchTags += meta.tags.distinct().map { ItemTagCrossRef(meta.id, it) }
+                    scanned++
+                }
             }
 
             if (batch.size >= 200) {
@@ -122,7 +133,20 @@ class EagleScanner(
             dao.upsertFull(batch.toList(), batchTags.toList())
         }
 
-        ScanResult(scanned = scanned, deleted = diff.toDelete.size, total = mtime.size)
+        ScanResult(
+            scanned = scanned,
+            deleted = diff.toDelete.size,
+            total = mtime.size,
+            missing = missing,
+        )
+    }
+
+    /** 探测文档是否存在且可读（不读取内容）。 */
+    private fun exists(uri: Uri): Boolean = try {
+        context.contentResolver.openFileDescriptor(uri, "r")?.close()
+        true
+    } catch (e: Exception) {
+        false
     }
 
     private fun readText(uri: Uri): String {

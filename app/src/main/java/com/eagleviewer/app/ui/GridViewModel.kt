@@ -153,8 +153,11 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
                 scanState.value = ScanUiState.Running(p.done, p.total)
             }
             container.settings.setLastScanTime(System.currentTimeMillis())
+            val base = "扫描完成：更新 ${result.scanned} 张，移除 ${result.deleted} 张，共 ${result.total} 张"
             scanState.value = ScanUiState.Done(
-                "扫描完成：更新 ${result.scanned} 张，移除 ${result.deleted} 张，共 ${result.total} 张"
+                if (result.missing > 0)
+                    "$base；${result.missing} 张图片文件未同步到本机，同步补全后重新扫描即可"
+                else base
             )
         } catch (e: EagleScanner.ScannerException) {
             scanState.value = ScanUiState.Error(e.message ?: "扫描失败")
