@@ -210,7 +210,14 @@ fun GridScreen(
                     ) {
                     LazyVerticalStaggeredGrid(
                         state = gridState,
-                        columns = StaggeredGridCells.Fixed(columnCount),
+                        // 按宽度自适应：竖屏手机上 2/3/4 列，横屏/平板自动增加
+                        columns = StaggeredGridCells.Adaptive(
+                            minSize = when (columnCount) {
+                                2 -> 180.dp
+                                3 -> 130.dp
+                                else -> 100.dp
+                            },
+                        ),
                         modifier = Modifier
                             .fillMaxSize()
                             // 双指捏合调节列数：张开=更大的图（列数-1），收拢=更多的图（列数+1）
@@ -245,6 +252,8 @@ fun GridScreen(
                                     data = data,
                                     selectionMode = selectionMode,
                                     selected = data.item.id in selection,
+                                    // 列数切换时的位置/尺寸过渡动画
+                                    modifier = Modifier.animateItem(),
                                     onClick = {
                                         if (selectionMode) vm.toggleSelection(data.item.id)
                                         else onOpenDetail(index)
@@ -332,6 +341,7 @@ private fun GridCell(
     data: ItemWithTags,
     selectionMode: Boolean,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -344,7 +354,7 @@ private fun GridCell(
     var useOriginal by remember(item.id) { mutableStateOf(false) }
 
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .aspectRatio(ratio)
             .clip(RoundedCornerShape(12.dp))

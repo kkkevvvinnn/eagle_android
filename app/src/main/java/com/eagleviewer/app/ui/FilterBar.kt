@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.DropdownMenu
@@ -25,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.eagleviewer.app.data.Filter
 import com.eagleviewer.app.data.Sort
@@ -70,9 +73,12 @@ fun FilterBar(
             selected = filter.tags.isNotEmpty(),
             onClick = { showTagSheet = true },
             label = {
+                // 显示真实标签名（与=&，或=|），而非「标签(N)」
                 Text(
                     if (filter.tags.isEmpty()) "标签"
-                    else "标签(${filter.tags.size})"
+                    else filter.tags.joinToString(if (filter.andMode) " & " else " | "),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             },
         )
@@ -148,6 +154,12 @@ private fun TagSheet(
     onFilterChange: ((Filter) -> Filter) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var tagQuery by remember { mutableStateOf("") }
+    val shownTags = remember(tagCounts, tagQuery) {
+        if (tagQuery.isBlank()) tagCounts
+        else tagCounts.filter { it.tag.contains(tagQuery.trim(), ignoreCase = true) }
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -161,6 +173,25 @@ private fun TagSheet(
                     }
                 }
             }
+            // 标签数量多时的搜索框
+            if (tagCounts.size > 8) {
+                OutlinedTextField(
+                    value = tagQuery,
+                    onValueChange = { tagQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    placeholder = { Text("搜索标签") },
+                    singleLine = true,
+                    trailingIcon = {
+                        if (tagQuery.isNotEmpty()) {
+                            IconButton(onClick = { tagQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "清空")
+                            }
+                        }
+                    },
+                )
+            }
             // 「未标记」与标签多选互斥
             FilterChip(
                 selected = filter.untaggedOnly,
@@ -172,9 +203,9 @@ private fun TagSheet(
                 label = { Text("未标记（无标签图片）") },
                 modifier = Modifier.padding(vertical = 4.dp),
             )
-            if (tagCounts.isEmpty()) {
+            if (shownTags.isEmpty()) {
                 Text(
-                    "图库中还没有标签",
+                    if (tagCounts.isEmpty()) "图库中还没有标签" else "没有匹配的标签",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
@@ -183,7 +214,7 @@ private fun TagSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(vertical = 12.dp),
                 ) {
-                    tagCounts.forEach { tc ->
+                    shownTags.forEach { tc ->
                         val selected = tc.tag in filter.tags
                         FilterChip(
                             selected = selected,

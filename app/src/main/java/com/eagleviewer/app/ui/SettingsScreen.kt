@@ -57,6 +57,8 @@ fun SettingsScreen(
     val uriHandler = LocalUriHandler.current
     val libraries by vm.libraries.collectAsState()
     val activeUri by vm.activeLibraryUri.collectAsState()
+    val itemCount by vm.itemCount.collectAsState()
+    val lastScanTime by vm.lastScanTime.collectAsState()
     val scanState by vm.scanState.collectAsState()
     val snackbar = remember { SnackbarHostState() }
 
@@ -139,8 +141,13 @@ fun SettingsScreen(
                     Column(Modifier.weight(1f)) {
                         Text(libraryDisplayName(uri), style = MaterialTheme.typography.bodyLarge)
                         if (isActive) {
+                            // 当前图库的统计（索引只对应激活图库）
+                            val stats = buildString {
+                                append("$itemCount 张图片")
+                                if (lastScanTime > 0) append(" · 上次扫描 ${formatTime(lastScanTime)}")
+                            }
                             Text(
-                                "当前使用",
+                                stats,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )

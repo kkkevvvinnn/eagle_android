@@ -60,6 +60,10 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     val activeLibraryUri: StateFlow<String> = container.settings.libraryUri
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    /** 上次扫描时间（毫秒），0 = 从未扫描。 */
+    val lastScanTime: StateFlow<Long> = container.settings.lastScanTime
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
     val scanState = MutableStateFlow<ScanUiState>(ScanUiState.Idle)
 
     init {
