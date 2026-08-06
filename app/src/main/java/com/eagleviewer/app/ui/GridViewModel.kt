@@ -97,6 +97,14 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { container.settings.setColumnCount(clamped) }
     }
 
+    /** 主题模式：0 = 跟随系统，1 = 深色，2 = 浅色。 */
+    val themeMode: StateFlow<Int> = container.settings.themeMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    fun setThemeMode(mode: Int) {
+        viewModelScope.launch { container.settings.setThemeMode(mode) }
+    }
+
     fun toggleSelection(id: String) {
         selection.value = if (id in selection.value) selection.value - id
         else selection.value + id

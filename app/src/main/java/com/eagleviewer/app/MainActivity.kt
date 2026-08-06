@@ -32,7 +32,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val container = (application as EagleApp).container
         setContent {
-            EagleTheme {
+            val themeMode by container.settings.themeMode.collectAsState(initial = 0)
+            EagleTheme(themeMode = themeMode) {
                 AppNavHost(container)
             }
         }

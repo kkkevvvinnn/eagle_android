@@ -20,6 +20,7 @@ class SettingsRepository(private val context: Context) {
     private val keyLastScan = longPreferencesKey("last_scan_time")
     private val keyFilterJson = stringPreferencesKey("filter_json")
     private val keyColumnCount = intPreferencesKey("column_count")
+    private val keyThemeMode = intPreferencesKey("theme_mode")
 
     val libraryUri: Flow<String> = context.dataStore.data.map { it[keyLibraryUri] ?: "" }
 
@@ -37,6 +38,9 @@ class SettingsRepository(private val context: Context) {
 
     /** 网格列数，默认 2。 */
     val columnCount: Flow<Int> = context.dataStore.data.map { it[keyColumnCount] ?: 2 }
+
+    /** 主题模式：0 = 跟随系统（默认），1 = 深色，2 = 浅色。 */
+    val themeMode: Flow<Int> = context.dataStore.data.map { it[keyThemeMode] ?: 0 }
 
     suspend fun setLibraryUri(uri: String) {
         context.dataStore.edit { it[keyLibraryUri] = uri }
@@ -66,6 +70,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setColumnCount(count: Int) {
         context.dataStore.edit { it[keyColumnCount] = count }
+    }
+
+    suspend fun setThemeMode(mode: Int) {
+        context.dataStore.edit { it[keyThemeMode] = mode }
     }
 
     private fun decodeUriList(json: String): List<String> =

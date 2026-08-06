@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +59,7 @@ fun SettingsScreen(
     val activeUri by vm.activeLibraryUri.collectAsState()
     val itemCount by vm.itemCount.collectAsState()
     val lastScanTime by vm.lastScanTime.collectAsState()
+    val themeMode by vm.themeMode.collectAsState()
     val scanState by vm.scanState.collectAsState()
     val snackbar = remember { SnackbarHostState() }
 
@@ -173,6 +175,21 @@ fun SettingsScreen(
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("添加图库目录")
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+
+            Text("主题", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row {
+                listOf(0 to "跟随系统", 1 to "深色", 2 to "浅色").forEach { (mode, label) ->
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { vm.setThemeMode(mode) },
+                        label = { Text(label) },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))

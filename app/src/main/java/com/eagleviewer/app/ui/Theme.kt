@@ -47,11 +47,19 @@ private val EagleLightScheme = lightColorScheme(
     error = Color(0xFFBA1A1A),
 )
 
-/** 主题跟随系统深/浅色。图片查看场景深色更突出，但尊重系统设置。 */
+/**
+ * 应用主题。
+ * @param themeMode 0 = 跟随系统（默认），1 = 深色，2 = 浅色。
+ */
 @Composable
-fun EagleTheme(content: @Composable () -> Unit) {
+fun EagleTheme(themeMode: Int = 0, content: @Composable () -> Unit) {
+    val dark = when (themeMode) {
+        1 -> true
+        2 -> false
+        else -> isSystemInDarkTheme()
+    }
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) EagleDarkScheme else EagleLightScheme,
+        colorScheme = if (dark) EagleDarkScheme else EagleLightScheme,
         content = content,
     )
 }

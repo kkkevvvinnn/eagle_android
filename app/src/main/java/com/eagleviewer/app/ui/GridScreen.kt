@@ -2,8 +2,6 @@ package com.eagleviewer.app.ui
 
 import android.content.ClipData
 import android.content.Intent
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -277,13 +275,11 @@ fun GridScreen(
                                     data = data,
                                     selectionMode = selectionMode,
                                     selected = data.item.id in selection,
-                                    // 列数切换时的位置/尺寸过渡动画，新进项淡入
+                                    // 不做位移动画（懒加载网格对未组合项无效，观感割裂），
+                                    // 列数切换由整体淡入遮盖；新进项淡入
                                     modifier = Modifier.animateItem(
                                         fadeInSpec = tween(200),
-                                        placementSpec = spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMediumLow,
-                                        ),
+                                        placementSpec = null,
                                         fadeOutSpec = tween(200),
                                     ),
                                     onClick = {
