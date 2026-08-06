@@ -136,7 +136,8 @@ class EagleScanner(
         ScanResult(
             scanned = scanned,
             deleted = diff.toDelete.size,
-            total = mtime.size,
+            // 总数口径与索引一致：排除回收站条目（mtime.json 会包含已删除项）
+            total = mtime.size - skippedDeleted.size,
             missing = missing,
         )
     }

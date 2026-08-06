@@ -165,11 +165,26 @@ private fun TagSheet(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("按标签筛选", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
+                // 与/或切换：初次选择标签时即可确定组合方式
+                Text("多标签", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(6.dp))
+                FilterChip(
+                    selected = filter.andMode,
+                    onClick = { onFilterChange { it.copy(andMode = true) } },
+                    label = { Text("与") },
+                )
+                Spacer(Modifier.width(6.dp))
+                FilterChip(
+                    selected = !filter.andMode,
+                    onClick = { onFilterChange { it.copy(andMode = false) } },
+                    label = { Text("或") },
+                )
                 if (filter.tags.isNotEmpty() || filter.untaggedOnly) {
                     TextButton(onClick = {
                         onFilterChange { it.copy(tags = emptySet(), untaggedOnly = false) }
                     }) {
-                        Text("清除全部")
+                        Text("清除")
                     }
                 }
             }

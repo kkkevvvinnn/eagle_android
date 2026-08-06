@@ -2,6 +2,9 @@ package com.eagleviewer.app.ui
 
 import android.content.ClipData
 import android.content.Intent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -36,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -58,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -87,6 +90,7 @@ fun GridScreen(
     val itemCount by vm.itemCount.collectAsState()
     val scanState by vm.scanState.collectAsState()
     val columnCount by vm.columnCount.collectAsState()
+    val activeLibraryUri by vm.activeLibraryUri.collectAsState()
     val selection by vm.selection.collectAsState()
     val selectionMode = selection.isNotEmpty()
     var searchActive by remember { mutableStateOf(filter.nameQuery.isNotBlank()) }
@@ -144,11 +148,12 @@ fun GridScreen(
                 )
                 else -> TopAppBar(
                     title = {
-                        // 有筛选条件时显示「筛选结果数 / 总数」
+                        // 有筛选条件时显示「筛选结果数 / 总数」，否则显示当前图库目录名
                         Text(
                             if (filter != com.eagleviewer.app.data.Filter())
                                 "筛选 ${items.itemCount} / $itemCount"
-                            else "Eagle 图库 ($itemCount)"
+                            else libraryDisplayName(activeLibraryUri).ifBlank { "Eagle 图库" },
+                            maxLines = 1,
                         )
                     },
                     actions = {
@@ -174,7 +179,7 @@ fun GridScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
     ) { padding ->
         Column(Modifier.padding(padding)) {
             FilterBar(
@@ -202,6 +207,8 @@ fun GridScreen(
                     val gridState = rememberSaveable(
                         saver = LazyStaggeredGridState.Saver,
                     ) { LazyStaggeredGridState() }
+                    // 捏合过程中的整体缩放预览系数（1 = 无预览）
+                    val pinchScale = remember { androidx.compose.animation.core.Animatable(1f) }
 
                     PullToRefreshBox(
                         isRefreshing = scanState is ScanUiState.Running,
@@ -220,6 +227,11 @@ fun GridScreen(
                         ),
                         modifier = Modifier
                             .fillMaxSize()
+                            // 捏合预览：手势过程中整体连续缩放，松手后回弹
+                            .graphicsLayer {
+                                scaleX = pinchScale.value
+                                scaleY = pinchScale.value
+                            }
                             // 双指捏合调节列数：张开=更大的图（列数-1），收拢=更多的图（列数+1）
                             .pointerInput(Unit) {
                                 awaitEachGesture {
@@ -230,12 +242,18 @@ fun GridScreen(
                                         if (event.changes.size >= 2) {
                                             accumulated *= event.calculateZoom()
                                             event.changes.forEach { it.consume() }
+                                            // 手势期间即时更新预览缩放
+                                            scope.launch {
+                                                pinchScale.snapTo(accumulated.coerceIn(0.5f, 1.6f))
+                                            }
                                         }
                                     } while (event.changes.any { it.pressed })
+                                    // 松手：提交列数变化，预览系数动画回到 1
                                     when {
                                         accumulated > 1.3f -> vm.setColumnCount(columnCount - 1)
                                         accumulated < 0.75f -> vm.setColumnCount(columnCount + 1)
                                     }
+                                    scope.launch { pinchScale.animateTo(1f, tween(200)) }
                                 }
                             },
                         contentPadding = PaddingValues(8.dp),
@@ -252,8 +270,15 @@ fun GridScreen(
                                     data = data,
                                     selectionMode = selectionMode,
                                     selected = data.item.id in selection,
-                                    // 列数切换时的位置/尺寸过渡动画
-                                    modifier = Modifier.animateItem(),
+                                    // 列数切换时的位置/尺寸过渡动画，新进项淡入
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = tween(200),
+                                        placementSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow,
+                                        ),
+                                        fadeOutSpec = tween(200),
+                                    ),
                                     onClick = {
                                         if (selectionMode) vm.toggleSelection(data.item.id)
                                         else onOpenDetail(index)
