@@ -53,6 +53,14 @@ class FilterQueryTest {
     }
 
     @Test
+    fun `name query escapes like wildcards`() {
+        // 用户输入的 %/_ 应按字面匹配，不能当通配符
+        val q = ItemRepository.buildQuery(Filter(nameQuery = "100%_完成"))
+        assertTrue(q.sql.contains("ESCAPE '\\'"))
+        assertEquals(1, q.argCount)
+    }
+
+    @Test
     fun `untagged only excludes tagged items and ignores tag filter`() {
         val q = ItemRepository.buildQuery(Filter(tags = setOf("动漫"), untaggedOnly = true))
         assertTrue(q.sql.contains("id NOT IN (SELECT DISTINCT itemId FROM item_tag)"))

@@ -92,6 +92,10 @@ fun GridScreen(
     val selection by vm.selection.collectAsState()
     val selectionMode = selection.isNotEmpty()
     var searchActive by remember { mutableStateOf(filter.nameQuery.isNotBlank()) }
+    // 筛选状态从 DataStore 异步恢复：恢复出非空搜索词时同步展开搜索栏
+    LaunchedEffect(filter.nameQuery) {
+        if (filter.nameQuery.isNotBlank()) searchActive = true
+    }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(scanState) {
@@ -116,7 +120,10 @@ fun GridScreen(
                     onClose = { vm.clearSelection() },
                     onShare = {
                         scope.launch {
-                            val uris = vm.selectedImageUris()
+                            val uris = runCatching { vm.selectedImageUris() }.getOrElse {
+                                snackbar.showSnackbar("读取选中图片失败：${it.message}")
+                                return@launch
+                            }
                             if (uris.isEmpty()) return@launch
                             val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                                 type = "image/*"
@@ -131,8 +138,12 @@ fun GridScreen(
                                     uris.first().toUri(),
                                 )
                             }
-                            context.startActivity(Intent.createChooser(intent, "分享图片"))
-                            vm.clearSelection()
+                            runCatching {
+                                context.startActivity(Intent.createChooser(intent, "分享图片"))
+                            }.onFailure {
+                                // 选中过多时 intent 可能超出 binder 事务上限
+                                snackbar.showSnackbar("分享失败：${it.message ?: "选中图片过多"}")
+                            }.onSuccess { vm.clearSelection() }
                         }
                     },
                 )
@@ -244,16 +255,27 @@ fun GridScreen(
                                 awaitEachGesture {
                                     awaitFirstDown(requireUnconsumed = false)
                                     var accumulated = 1f
+                                    var prevPointers = 1
                                     do {
                                         val event = awaitPointerEvent()
-                                        if (event.changes.size >= 2) {
-                                            accumulated *= event.calculateZoom()
-                                            event.changes.forEach { it.consume() }
-                                            // 手势期间即时更新预览缩放（收窄幅度，避免过于激烈）
-                                            scope.launch {
-                                                pinchScale.snapTo(accumulated.coerceIn(0.7f, 1.4f))
+                                        val pointers = event.changes.size
+                                        if (pointers >= 2) {
+                                            if (pointers != prevPointers) {
+                                                // 指针数变化的那一帧 calculateZoom 会失真
+                                                // （新手指的 previousPosition == position，
+                                                // 旧距离趋近 0 产生 zoom 尖峰），跳过并重置
+                                                accumulated = 1f
+                                            } else {
+                                                accumulated = (accumulated * event.calculateZoom())
+                                                    .coerceIn(0.5f, 2f)
+                                                // 手势期间即时更新预览缩放（收窄幅度，避免过于激烈）
+                                                scope.launch {
+                                                    pinchScale.snapTo(accumulated.coerceIn(0.7f, 1.4f))
+                                                }
                                             }
+                                            event.changes.forEach { it.consume() }
                                         }
+                                        prevPointers = pointers
                                     } while (event.changes.any { it.pressed })
                                     // 松手：提交列数变化，预览系数动画回到 1
                                     when {
@@ -281,7 +303,12 @@ fun GridScreen(
                                         if (selectionMode) vm.toggleSelection(data.item.id)
                                         else onOpenDetail(index)
                                     },
-                                    onLongClick = { vm.enterSelection(data.item.id) },
+                                    onLongClick = {
+                                        // 多选模式下长按另一张图应追加/取消，
+                                        // 而不是清空整个选择集重来
+                                        if (selectionMode) vm.toggleSelection(data.item.id)
+                                        else vm.enterSelection(data.item.id)
+                                    },
                                 )
                             } else {
                                 // 占位符：未知尺寸，用方形占位

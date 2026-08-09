@@ -10,8 +10,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -53,10 +55,18 @@ fun AppNavHost(container: AppContainer) {
         null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        else -> NavHost(
-            navController = nav,
-            startDestination = if (uri.isEmpty()) "setup" else "grid",
-        ) {
+        else -> {
+            // SAF 持久授权可能被用户在系统设置中撤销（或提供方不支持持久授权）：
+            // URI 失效时图片全部加载失败且无提示，启动时校验并引导重新选择目录
+            val context = LocalContext.current
+            val hasReadPermission = remember(uri) {
+                uri.isNotEmpty() && context.contentResolver.persistedUriPermissions
+                    .any { it.uri.toString() == uri && it.isReadPermission }
+            }
+            NavHost(
+                navController = nav,
+                startDestination = if (uri.isEmpty() || !hasReadPermission) "setup" else "grid",
+            ) {
             composable("setup") {
                 LibrarySetupScreen(
                     container = container,
@@ -96,4 +106,4 @@ fun AppNavHost(container: AppContainer) {
             }
         }
     }
-}
+}}

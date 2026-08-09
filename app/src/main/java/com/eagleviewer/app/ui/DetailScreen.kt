@@ -61,7 +61,8 @@ fun DetailScreen(
     val items = vm.pagingData.collectAsLazyPagingItems()
     var showInfo by remember { mutableStateOf(false) }
 
-    BackHandler { onBack() }
+    // 信息面板展开时返回键先关面板，再退出详情页
+    BackHandler { if (showInfo) showInfo = false else onBack() }
 
     Box(
         Modifier
@@ -135,6 +136,10 @@ fun DetailScreen(
 @Composable
 private fun DetailPage(data: ItemWithTags, onTap: () -> Unit) {
     val item = data.item
+    val context = LocalContext.current
+    // 解码尺寸约束到屏幕像素：原图按原始分辨率解码时，一张 4000×3000 位图约 48MB，
+    // Pager 预载 ±1 页共 3 张极易 OOM；屏幕尺寸足以显示（手势放大只是像素插值）
+    val metrics = context.resources.displayMetrics
     Box(Modifier.fillMaxSize()) {
         // 底层缩略图（原图加载期间可见）
         AsyncImage(
@@ -144,11 +149,15 @@ private fun DetailPage(data: ItemWithTags, onTap: () -> Unit) {
             contentScale = ContentScale.Fit,
         )
         ZoomableImage(
-            model = ImageRequest.Builder(LocalContext.current)
+            model = ImageRequest.Builder(context)
                 .data(item.imageUri)
+                .size(metrics.widthPixels, metrics.heightPixels)
                 .crossfade(true)
                 .build(),
             contentDescription = item.name,
+            // 图片宽高比用于精确计算缩放后的平移边界
+            imageAspect = if (item.width > 0 && item.height > 0)
+                item.width.toFloat() / item.height else 0f,
             modifier = Modifier.fillMaxSize(),
             onTap = onTap,
         )

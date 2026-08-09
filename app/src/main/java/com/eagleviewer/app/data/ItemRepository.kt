@@ -8,9 +8,11 @@ import androidx.sqlite.db.SupportSQLiteQuery
 import com.eagleviewer.app.data.db.AppDatabase
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -68,13 +70,17 @@ class ItemRepository(private val db: AppDatabase) {
     fun itemCount(): Flow<Int> = db.itemDao().itemCount()
 
     /** 按色板与目标颜色的距离对全库排序，取前 [SIMILAR_LIMIT] 个 id。 */
-    private suspend fun rankBySimilarColor(color: Int): List<String> =
-        db.itemDao().allPalettes()
-            .map { it.id to paletteDistance(it.palettesJson, color) }
-            .filter { it.second < Double.MAX_VALUE }
-            .sortedBy { it.second }
-            .take(SIMILAR_LIMIT)
-            .map { it.first }
+    private suspend fun rankBySimilarColor(color: Int): List<String> {
+        val all = db.itemDao().allPalettes()
+        // 全库 JSON 解码 + 排序不能跑在主线程（收集方是 viewModelScope）
+        return withContext(Dispatchers.Default) {
+            all.map { it.id to paletteDistance(it.palettesJson, color) }
+                .filter { it.second < Double.MAX_VALUE }
+                .sortedBy { it.second }
+                .take(SIMILAR_LIMIT)
+                .map { it.first }
+        }
+    }
 
     companion object {
         private const val SIMILAR_LIMIT = 150
@@ -92,14 +98,15 @@ class ItemRepository(private val db: AppDatabase) {
             val tr = (color shr 16) and 0xFF
             val tg = (color shr 8) and 0xFF
             val tb = color and 0xFF
+            // minOfOrNull：色板全部残缺（color 不足 3 元素）时不参与检索
             return palettes
                 .filter { it.color.size >= 3 }
-                .minOf { p ->
+                .minOfOrNull { p ->
                     val dr = p.color[0] - tr
                     val dg = p.color[1] - tg
                     val db = p.color[2] - tb
                     kotlin.math.sqrt((dr * dr + dg * dg + db * db).toDouble())
-                }
+                } ?: Double.MAX_VALUE
         }
 
         /** 相似配色查询：按距离排序后的 id 列表用 CASE 保序。 */
@@ -125,8 +132,12 @@ class ItemRepository(private val db: AppDatabase) {
                 args += filter.minStar
             }
             if (filter.nameQuery.isNotBlank()) {
-                conditions += "name LIKE '%' || ? || '%'"
+                // 转义 LIKE 通配符：用户输入 %/_ 应按字面匹配
+                conditions += "name LIKE '%' || ? || '%' ESCAPE '\\'"
                 args += filter.nameQuery.trim()
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
             }
             if (filter.untaggedOnly) {
                 // 未标记：不属于任何标签

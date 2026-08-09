@@ -57,13 +57,15 @@ data class EagleItemMeta(
 
 /**
  * 解析根目录 `mtime.json`：`{ "<ID>": lastModified, "all": 总数 }`。
- * "all" 是统计信息，不作为条目返回。
+ * "all" 是统计信息，不作为条目返回；个别坏值（null/字符串/浮点）跳过，
+ * 不让单条脏数据中断整个扫描。
  */
 fun parseMtimeJson(text: String): Map<String, Long> {
     val obj = Json.parseToJsonElement(text).let {
         it as? kotlinx.serialization.json.JsonObject
     } ?: return emptyMap()
-    return obj.entries
-        .filter { (k, v) -> k != "all" && v is kotlinx.serialization.json.JsonPrimitive && v.jsonPrimitive.isString.not() }
-        .associate { (k, v) -> k to v.jsonPrimitive.long }
+    return obj.entries.mapNotNull { (k, v) ->
+        if (k == "all") null
+        else runCatching { k to v.jsonPrimitive.long }.getOrNull()
+    }.toMap()
 }

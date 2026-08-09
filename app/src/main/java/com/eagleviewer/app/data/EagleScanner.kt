@@ -43,8 +43,12 @@ class EagleScanner(
     ): ScanResult = withContext(Dispatchers.IO) {
         val rootUri = Uri.parse(rootUriString)
         val treeDocId = DocumentsContract.getTreeDocumentId(rootUri)
-        fun docUri(path: String): Uri =
-            DocumentsContract.buildDocumentUriUsingTree(rootUri, "$treeDocId/$path")
+        // documentId 直接拼进 URI 路径，文件名中的 #/? 会被 Uri 解析成 fragment/query
+        // 导致 provider 侧 id 被截断（图片静默丢失），必须逐段编码
+        fun docUri(path: String): Uri {
+            val encoded = path.split('/').joinToString("/") { Uri.encode(it) }
+            return DocumentsContract.buildDocumentUriUsingTree(rootUri, "$treeDocId/$encoded")
+        }
 
         val mtimeText = try {
             readText(docUri("mtime.json"))
@@ -52,20 +56,28 @@ class EagleScanner(
             throw ScannerException("无法读取 mtime.json，请确认选择的是 Eagle 导出的 .library 根目录")
         }
         val mtime = parseMtimeJson(mtimeText)
+        // 防御：mtime.json 内容合法但为空（同步工具中间态/文件残缺）时，
+        // diff 会把全库当作待删除，直接拒绝扫描
+        if (mtime.isEmpty()) {
+            throw ScannerException("mtime.json 内容为空或格式异常，请等待同步完成后重试")
+        }
 
         val dao = db.itemDao()
         val indexed = dao.allModified().associate { it.id to it.lastModified }
         val diff = ScanDiffer.diff(indexed, mtime)
 
         if (diff.toDelete.isNotEmpty()) {
-            dao.deleteItems(diff.toDelete)
+            dao.deleteItemsChunked(diff.toDelete)
         }
 
         var scanned = 0
         var missing = 0
         val batch = mutableListOf<ItemEntity>()
         val batchTags = mutableListOf<ItemTagCrossRef>()
-        val skippedDeleted = mutableListOf<String>()
+        // 条目缺失/解析失败/回收站时待删除的 id，循环结束后统一分批删除，
+        // 避免逐条单行事务
+        val toRemove = mutableListOf<String>()
+        var skippedDeleted = 0
 
         diff.toScan.forEachIndexed { index, id ->
             val metaText = try {
@@ -83,10 +95,10 @@ class EagleScanner(
 
             if (meta == null) {
                 // 文件缺失或解析失败：若库里有旧记录则删掉，保持一致
-                if (indexed.containsKey(id)) dao.deleteItems(listOf(id))
+                if (indexed.containsKey(id)) toRemove += id
             } else if (meta.isDeleted) {
-                skippedDeleted += id
-                if (indexed.containsKey(id)) dao.deleteItems(listOf(id))
+                skippedDeleted++
+                if (indexed.containsKey(id)) toRemove += id
             } else {
                 val imageDocUri = docUri("images/$id.info/${meta.name}.${meta.ext}")
                 val thumbDocUri = docUri("images/$id.info/${meta.name}_thumbnail.png")
@@ -94,7 +106,7 @@ class EagleScanner(
                     // 图片本体未同步到本机（如源目录权限不足导致同步工具只拷了 JSON）。
                     // 跳过不索引：由于 DB 中没有该 id，下次扫描 diff 会自动重试，同步补全后自愈。
                     missing++
-                    if (indexed.containsKey(id)) dao.deleteItems(listOf(id))
+                    if (indexed.containsKey(id)) toRemove += id
                 } else {
                     batch += ItemEntity(
                         id = meta.id,
@@ -110,8 +122,9 @@ class EagleScanner(
                         annotation = meta.annotation,
                         url = meta.url,
                         imageUri = imageDocUri.toString(),
-                        // 缩略图缺失时存 null，网格直接加载原图
-                        thumbUri = if (exists(thumbDocUri)) thumbDocUri.toString() else null,
+                        // 不再逐条探测缩略图是否存在（每条一次跨进程 IPC，大库下代价高）：
+                        // 直接存 URI，缺失时网格/详情页 Coil 加载失败会自动降级原图
+                        thumbUri = thumbDocUri.toString(),
                         paletteColor = meta.primaryColor,
                         palettesJson = if (meta.palettes.isEmpty()) ""
                             else EagleItemMeta.json.encodeToString(meta.palettes),
@@ -126,18 +139,24 @@ class EagleScanner(
                 batch.clear()
                 batchTags.clear()
             }
-            onProgress(Progress(index + 1, diff.toScan.size))
+            // 进度回调节流：每条一次的状态写入会让 UI 侧持续重组
+            if ((index + 1) % 20 == 0 || index + 1 == diff.toScan.size) {
+                onProgress(Progress(index + 1, diff.toScan.size))
+            }
         }
 
         if (batch.isNotEmpty()) {
             dao.upsertFull(batch.toList(), batchTags.toList())
+        }
+        if (toRemove.isNotEmpty()) {
+            dao.deleteItemsChunked(toRemove)
         }
 
         ScanResult(
             scanned = scanned,
             deleted = diff.toDelete.size,
             // 总数口径与索引一致：排除回收站条目（mtime.json 会包含已删除项）
-            total = mtime.size - skippedDeleted.size,
+            total = mtime.size - skippedDeleted,
             missing = missing,
         )
     }

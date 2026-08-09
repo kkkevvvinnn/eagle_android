@@ -28,6 +28,25 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE id IN (:ids)")
     suspend fun deleteItems(ids: List<String>)
 
+    /** 分享多选图片时按 id 取原图 URI。 */
+    @Query("SELECT imageUri FROM items WHERE id IN (:ids)")
+    suspend fun imageUrisFor(ids: List<String>): List<String>
+
+    // IN (...) 列表每个元素占一个 SQL 变量；Android 8–11 的 SQLite 上限为 999，
+    // 超过即抛 SQLiteException。所有可能传入大列表的调用方一律走下面的分批封装。
+    companion object {
+        const val SQL_BATCH = 400
+    }
+
+    /** 分批删除，规避 SQL 变量上限（切库时 toDelete 可能是整个旧图库）。 */
+    suspend fun deleteItemsChunked(ids: List<String>) {
+        ids.chunked(SQL_BATCH).forEach { deleteItems(it) }
+    }
+
+    /** 分批查询原图 URI，规避 SQL 变量上限（多选分享可能超过 999 张）。 */
+    suspend fun imageUrisForChunked(ids: List<String>): List<String> =
+        ids.chunked(SQL_BATCH).flatMap { imageUrisFor(it) }
+
     @Transaction
     suspend fun upsertFull(items: List<ItemEntity>, refs: List<ItemTagCrossRef>) {
         upsertItems(items)
@@ -45,10 +64,6 @@ interface ItemDao {
 
     @Query("SELECT COUNT(*) FROM items")
     fun itemCount(): Flow<Int>
-
-    /** 分享多选图片时按 id 取原图 URI。 */
-    @Query("SELECT imageUri FROM items WHERE id IN (:ids)")
-    suspend fun imageUrisFor(ids: List<String>): List<String>
 
     /** 颜色相似度检索：取全部条目的色板数据在内存中排序。 */
     @Query("SELECT id, palettesJson FROM items")

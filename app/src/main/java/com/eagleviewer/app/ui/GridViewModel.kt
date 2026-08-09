@@ -12,15 +12,20 @@ import com.eagleviewer.app.data.EagleScanner
 import com.eagleviewer.app.data.Filter
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 
 /** 扫描进度/结果状态，设置页与网格页共用。 */
@@ -41,8 +46,11 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 多选模式下的选中 id 集合；空集合 = 非多选模式。 */
     val selection = MutableStateFlow<Set<String>>(emptySet())
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val pagingData: Flow<PagingData<ItemWithTags>> = filter
+        // 输入搜索词时防抖 300ms，避免每击键一次都重启 Pager；
+        // 搜索词为空时的其他筛选变化立即生效
+        .debounce { if (it.nameQuery.isNotEmpty()) 300L else 0L }
         .flatMapLatest { container.items.pagedItems(it) }
         .cachedIn(viewModelScope)
 
@@ -66,20 +74,29 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
 
     val scanState = MutableStateFlow<ScanUiState>(ScanUiState.Idle)
 
+    /** 扫描串行化：并发扫描（如扫描中切换图库）会把两个图库的条目混进同一索引。 */
+    private val scanMutex = Mutex()
+
+    // 恢复竞态防护：DataStore 恢复值晚到时，不覆盖用户已做的修改
+    private var filterTouched = false
+    private var columnCountTouched = false
+
     init {
         // 恢复上次保存的筛选状态与列数
         viewModelScope.launch {
             val savedFilter = container.settings.filterJson.first()
-            if (savedFilter.isNotEmpty()) {
+            if (savedFilter.isNotEmpty() && !filterTouched) {
                 runCatching {
                     filter.value = EagleItemMeta.json.decodeFromString<Filter>(savedFilter)
                 }
             }
-            columnCount.value = container.settings.columnCount.first().coerceIn(2, 4)
+            val savedColumns = container.settings.columnCount.first().coerceIn(2, 4)
+            if (!columnCountTouched) columnCount.value = savedColumns
         }
     }
 
     fun updateFilter(transform: (Filter) -> Filter) {
+        filterTouched = true
         val next = transform(filter.value)
         filter.value = next
         // 筛选变化即持久化（写入量极小）
@@ -91,6 +108,7 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun setColumnCount(count: Int) {
+        columnCountTouched = true
         val clamped = count.coerceIn(2, 4)
         if (clamped == columnCount.value) return
         columnCount.value = clamped
@@ -118,9 +136,9 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         selection.value = emptySet()
     }
 
-    /** 多选分享用：按选中 id 查原图 content URI。 */
+    /** 多选分享用：按选中 id 分批查原图 content URI（防 SQL 变量上限）。 */
     suspend fun selectedImageUris(): List<String> =
-        container.db.itemDao().imageUrisFor(selection.value.toList())
+        container.db.itemDao().imageUrisForChunked(selection.value.toList())
 
     fun rescan() {
         viewModelScope.launch {
@@ -133,12 +151,11 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** 设置页选定目录后调用：持久化 URI 并执行首次全量扫描。 */
+    /** 设置页选定目录后调用：加入图库列表并执行首次全量扫描，扫描成功后才持久化为当前图库。 */
     fun onLibraryPicked(uri: String) {
         viewModelScope.launch {
-            container.settings.setLibraryUri(uri)
             container.settings.addLibrary(uri)
-            runScan(uri)
+            if (runScan(uri)) container.settings.setLibraryUri(uri)
         }
     }
 
@@ -149,8 +166,9 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     fun switchLibrary(uri: String) {
         if (uri == activeLibraryUri.value) return
         viewModelScope.launch {
-            container.settings.setLibraryUri(uri)
-            runScan(uri)
+            // 扫描成功后才切换持久化的当前图库：失败时保持旧图库与旧索引一致，
+            // 避免「标题是新库、内容是旧库」的错配状态
+            if (runScan(uri)) container.settings.setLibraryUri(uri)
         }
     }
 
@@ -158,7 +176,8 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { container.settings.removeLibrary(uri) }
     }
 
-    suspend fun runScan(uri: String) {
+    /** 执行扫描，返回是否成功。并发调用经 [scanMutex] 串行化。 */
+    suspend fun runScan(uri: String): Boolean = scanMutex.withLock {
         scanState.value = ScanUiState.Running(0, 0)
         try {
             val result = container.scanner.scan(uri) { p ->
@@ -171,10 +190,17 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
                     "$base；${result.missing} 张图片文件未同步到本机，同步补全后重新扫描即可"
                 else base
             )
+            true
+        } catch (e: CancellationException) {
+            // 结构化并发：取消不是扫描失败
+            scanState.value = ScanUiState.Idle
+            throw e
         } catch (e: EagleScanner.ScannerException) {
             scanState.value = ScanUiState.Error(e.message ?: "扫描失败")
+            false
         } catch (e: Exception) {
             scanState.value = ScanUiState.Error("扫描失败：${e.message}")
+            false
         }
     }
 

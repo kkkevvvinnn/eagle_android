@@ -65,4 +65,13 @@ class EagleItemMetaTest {
         assertEquals(1785068196035L, map["MS1RIJ0HJTER8"])
         assertNull(map["all"])
     }
+
+    @Test
+    fun `mtime json skips bad values instead of failing the whole scan`() {
+        // 同步工具中间态可能写入 null/字符串/浮点等坏值：跳过坏条目，保留好条目
+        val text = """{"GOOD":1785068196035,"NULL":null,"STR":"abc","FLOAT":1.5,"BOOL":true,"all":5}"""
+        val map = parseMtimeJson(text)
+        assertEquals(1, map.size)
+        assertEquals(1785068196035L, map["GOOD"])
+    }
 }

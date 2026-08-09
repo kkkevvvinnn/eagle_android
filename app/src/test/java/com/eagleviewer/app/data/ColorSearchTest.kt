@@ -31,6 +31,12 @@ class ColorSearchTest {
         assertEquals(Double.MAX_VALUE, ItemRepository.paletteDistance("", 0), 0.0)
         assertEquals(Double.MAX_VALUE, ItemRepository.paletteDistance("[]", 0), 0.0)
         assertEquals(Double.MAX_VALUE, ItemRepository.paletteDistance("not json", 0), 0.0)
+        // 色板条目存在但 color 字段全部残缺时也不得参与检索（不能抛 NoSuchElementException）
+        assertEquals(
+            Double.MAX_VALUE,
+            ItemRepository.paletteDistance("""[{"color":[1,2],"ratio":10}]""", 0),
+            0.0,
+        )
     }
 
     @Test

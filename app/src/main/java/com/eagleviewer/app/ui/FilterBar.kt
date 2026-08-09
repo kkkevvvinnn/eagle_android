@@ -239,12 +239,12 @@ private fun TagSheet(
                     },
                 )
             }
-            // 「未标记」与标签多选互斥
+            // 「未标记」与标签多选、相似配色互斥
             FilterChip(
                 selected = filter.untaggedOnly,
                 onClick = {
                     onFilterChange { f ->
-                        f.copy(untaggedOnly = !f.untaggedOnly, tags = emptySet())
+                        f.copy(untaggedOnly = !f.untaggedOnly, tags = emptySet(), similarColor = null)
                     }
                 },
                 label = { Text("未标记（无标签图片）") },
