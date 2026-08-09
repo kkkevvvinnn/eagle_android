@@ -33,6 +33,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -181,10 +182,17 @@ private fun TagSheet(
         if (tagQuery.isBlank()) tagCounts
         else tagCounts.filter { it.tag.contains(tagQuery.trim(), ignoreCase = true) }
     }
+    // 跳过部分展开态：否则「清除」按钮出现/消失导致内容高度变化时，
+    // sheet 会重新停靠并滑动，视觉上像滚动位置被重置回顶部
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 固定最小高度：「清除」「与/或」出现/消失不改变行高，sheet 高度保持稳定
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
                 Text("按标签筛选", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
                 // 与/或切换：仅在选中 2 个及以上标签时出现
