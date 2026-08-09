@@ -33,7 +33,12 @@ data class Filter(
     val untaggedOnly: Boolean = false,
     /** 相似配色检索的目标颜色（RGB int），非空时按色板距离排序，忽略其他条件。 */
     val similarColor: Int? = null,
-)
+) {
+    /** 是否存在真实筛选条件（排序方式不算筛选）。 */
+    val isActive: Boolean
+        get() = tags.isNotEmpty() || minStar > 0 || nameQuery.isNotBlank() ||
+            untaggedOnly || similarColor != null
+}
 
 /** 基于 Room 索引的查询仓库：动态组装筛选 SQL（标签与/或、评分、排序、相似配色）。 */
 class ItemRepository(private val db: AppDatabase) {

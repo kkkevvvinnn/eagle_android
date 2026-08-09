@@ -148,7 +148,7 @@ fun GridScreen(
                     title = {
                         // 有筛选条件时显示「筛选结果数 / 总数」，否则显示当前图库目录名
                         Text(
-                            if (filter != com.eagleviewer.app.data.Filter())
+                            if (filter.isActive)
                                 "筛选 ${items.itemCount} / $itemCount"
                             else libraryDisplayName(activeLibraryUri).ifBlank { "Eagle 图库" },
                             maxLines = 1,

@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -247,23 +249,31 @@ private fun TagSheet(
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
             } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(vertical = 12.dp),
+                // 标签区自己持有滚动状态并限定高度：点选标签触发重组时保持滚动位置，
+                // 不会被 BottomSheet 内部布局变化重置回顶部
+                Column(
+                    Modifier
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
                 ) {
-                    shownTags.forEach { tc ->
-                        val selected = tc.tag in filter.tags
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                onFilterChange { f ->
-                                    val next = if (selected) f.tags - tc.tag else f.tags + tc.tag
-                                    // 选中任一标签即退出「未标记」与「相似配色」模式（互斥）
-                                    f.copy(tags = next, untaggedOnly = false, similarColor = null)
-                                }
-                            },
-                            label = { Text("${tc.tag} (${tc.cnt})") },
-                        )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    ) {
+                        shownTags.forEach { tc ->
+                            val selected = tc.tag in filter.tags
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    onFilterChange { f ->
+                                        val next = if (selected) f.tags - tc.tag else f.tags + tc.tag
+                                        // 选中任一标签即退出「未标记」与「相似配色」模式（互斥）
+                                        f.copy(tags = next, untaggedOnly = false, similarColor = null)
+                                    }
+                                },
+                                label = { Text("${tc.tag} (${tc.cnt})") },
+                            )
+                        }
                     }
                 }
             }
