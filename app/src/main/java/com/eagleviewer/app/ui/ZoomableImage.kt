@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -53,14 +54,18 @@ fun ZoomableImage(
     val offsetX = remember { Animatable(0f) }
     val offsetY = remember { Animatable(0f) }
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
+    // pointerInput(Unit) 不会随参数变化重启，闭包会冻结首次组合的值，
+    // 必须经 rememberUpdatedState 读取最新的宽高比/回调
+    val currentAspect by rememberUpdatedState(imageAspect)
+    val currentOnTap by rememberUpdatedState(onTap)
 
     /** Fit 模式下图片在缩放倍率 1 时的实际显示尺寸。 */
     fun fitBase(): Pair<Float, Float> {
         val lw = layoutSize.width.toFloat()
         val lh = layoutSize.height.toFloat()
-        if (imageAspect <= 0f || lw <= 0f || lh <= 0f) return lw to lh
-        return if (lw / lh > imageAspect) (lh * imageAspect) to lh
-        else lw to (lw / imageAspect)
+        if (currentAspect <= 0f || lw <= 0f || lh <= 0f) return lw to lh
+        return if (lw / lh > currentAspect) (lh * currentAspect) to lh
+        else lw to (lw / currentAspect)
     }
 
     fun clamp(o: Offset, s: Float): Offset {
@@ -91,7 +96,7 @@ fun ZoomableImage(
             .onSizeChanged { layoutSize = it }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { onTap() },
+                    onTap = { currentOnTap() },
                     onDoubleTap = { tap ->
                         if (scale.value > 1f) {
                             animateTo(1f, Offset.Zero, animate = true)

@@ -69,7 +69,7 @@ fun AppNavHost(container: AppContainer) {
             ) {
             composable("setup") {
                 LibrarySetupScreen(
-                    container = container,
+                    vm = gridVm,
                     onDone = {
                         nav.navigate("grid") { popUpTo("setup") { inclusive = true } }
                     },

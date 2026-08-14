@@ -69,6 +69,10 @@ interface ItemDao {
     @Query("SELECT COUNT(*) FROM items")
     fun itemCount(): Flow<Int>
 
+    /** 扫描结束时取索引实数（比按 mtime 推算可靠：回收站条目不进索引且不再被扫描）。 */
+    @Query("SELECT COUNT(*) FROM items")
+    suspend fun itemCountNow(): Int
+
     /** 颜色相似度检索：取全部条目的色板数据在内存中排序。 */
     @Query("SELECT id, palettesJson FROM items")
     suspend fun allPalettes(): List<IdPalettes>

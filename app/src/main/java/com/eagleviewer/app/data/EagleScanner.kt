@@ -54,7 +54,11 @@ class EagleScanner(
         } catch (e: Exception) {
             throw ScannerException("无法读取 mtime.json，请确认选择的是 Eagle 导出的 .library 根目录")
         }
-        val mtime = parseMtimeJson(mtimeText)
+        val mtime = try {
+            parseMtimeJson(mtimeText)
+        } catch (e: Exception) {
+            throw ScannerException("mtime.json 解析失败：文件可能正在同步写入，请稍后重试")
+        }
         // 防御：mtime.json 内容合法但为空（同步工具中间态/文件残缺）时，
         // diff 会把全库当作待删除，直接拒绝扫描
         if (mtime.isEmpty()) {
@@ -85,7 +89,6 @@ class EagleScanner(
         // 条目缺失/解析失败/回收站时待删除的 id，循环结束后统一分批删除，
         // 避免逐条单行事务
         val toRemove = mutableListOf<String>()
-        var skippedDeleted = 0
 
         toScan.forEachIndexed { index, id ->
             val metaText = try {
@@ -105,7 +108,6 @@ class EagleScanner(
                 // 文件缺失或解析失败：若库里有旧记录则删掉，保持一致
                 if (indexed.containsKey(id)) toRemove += id
             } else if (meta.isDeleted) {
-                skippedDeleted++
                 if (indexed.containsKey(id)) toRemove += id
             } else {
                 val imageDocUri = docUri("images/$id.info/${meta.name}.${meta.ext}")
@@ -163,8 +165,10 @@ class EagleScanner(
         ScanResult(
             scanned = scanned,
             deleted = diff.toDelete.size,
-            // 总数口径与索引一致：排除回收站条目（mtime.json 会包含已删除项）
-            total = mtime.size - skippedDeleted,
+            // 总数直接取扫描后的索引实数，与网格/设置页口径严格一致
+            // （不能按 mtime 推算：回收站条目留在 mtime 里但永不进索引，
+            // 且 mtime 未变的回收站条目不会再被扫描统计到）
+            total = dao.itemCountNow(),
             missing = missing,
         )
     }

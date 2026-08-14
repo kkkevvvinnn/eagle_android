@@ -84,7 +84,7 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `ui/DetailScreen.kt` | HorizontalPager 大图页 + 信息面板（色卡触发相似配色） |
 | `ui/ZoomableImage.kt` | 缩放手势组件（见 §5.5 契约） |
 | `ui/SettingsScreen.kt` | 多图库管理、重扫、主题切换、关于/版本/版权 |
-| `ui/LibrarySetupScreen.kt` | SAF 选目录 + 首次扫描引导 |
+| `ui/LibrarySetupScreen.kt` | SAF 选目录 + 首次扫描引导（复用共享 GridViewModel，不得自建 VM 实例——scanMutex 必须唯一） |
 | `ui/Theme.kt` / `ui/Format.kt` / `ui/Components.kt` | 深浅色主题 / libraryDisplayName 等 / AppSnackbarHost |
 
 ## 4. Eagle `.library` 格式（只读契约）
@@ -133,6 +133,8 @@ xxx.library/
    下次扫描 diff 自动重试；缺失/回收站条目累积到 `toRemove` 循环结束后**批量**删除
    （逐条单行事务在大库下极慢）。
 8. **批次与节流**：upsert 每 200 条一批；进度回调每 20 条一次（逐条回调会让 UI 持续重组）。
+   `ScanResult.total` 直接取扫描后 DB 实数（`itemCountNow`），不按 mtime 推算——
+   回收站条目留在 mtime 中但永不进索引，且 mtime 未变的回收站条目不会再被扫描统计。
 9. **不探测缩略图存在性**：`thumbUri` 总是直接存（省去每条一次跨进程 IPC），
    缺失时 Coil `onError` 触发 `useOriginal` 降级原图（GridCell 已有该路径）。
 10. **`catch (e: Exception)` 之前必须先 `catch (CancellationException) { throw e }`**

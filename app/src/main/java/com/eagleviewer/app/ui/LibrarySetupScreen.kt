@@ -24,20 +24,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.eagleviewer.app.AppContainer
 
 /**
  * 首次启动（或更换图库）的设置页：
  * 通过 SAF 选择 .library 根目录，持久化读权限后执行首次全量扫描。
+ * 与网格页共享同一个 activity 级 GridViewModel（扫描互斥锁的唯一持有者）。
  */
 @Composable
 fun LibrarySetupScreen(
-    container: AppContainer,
+    vm: GridViewModel,
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
-    val vm: GridViewModel = viewModel(factory = GridViewModel.factory(container))
     val scanState by vm.scanState.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
