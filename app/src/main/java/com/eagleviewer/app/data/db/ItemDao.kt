@@ -16,6 +16,10 @@ interface ItemDao {
     @Query("SELECT id, lastModified FROM items")
     suspend fun allModified(): List<IdModified>
 
+    /** URI 自修复用：取全部条目的原图 URI。 */
+    @Query("SELECT id, imageUri FROM items")
+    suspend fun allImageUris(): List<IdImageUri>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertItems(items: List<ItemEntity>)
 

@@ -43,12 +43,11 @@ class EagleScanner(
     ): ScanResult = withContext(Dispatchers.IO) {
         val rootUri = Uri.parse(rootUriString)
         val treeDocId = DocumentsContract.getTreeDocumentId(rootUri)
-        // documentId 直接拼进 URI 路径，文件名中的 #/? 会被 Uri 解析成 fragment/query
-        // 导致 provider 侧 id 被截断（图片静默丢失），必须逐段编码
-        fun docUri(path: String): Uri {
-            val encoded = path.split('/').joinToString("/") { Uri.encode(it) }
-            return DocumentsContract.buildDocumentUriUsingTree(rootUri, "$treeDocId/$encoded")
-        }
+        // 直接拼接原始 documentId：buildDocumentUriUsingTree 内部用 appendPath，
+        // 会对整个段做一次 URL 编码、provider 侧再解码还原，#/?/空格/中文都安全。
+        // 切勿自行预编码——appendPath 会二次编码（% → %25），导致文件全部探测不到
+        fun docUri(path: String): Uri =
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, "$treeDocId/$path")
 
         val mtimeText = try {
             readText(docUri("mtime.json"))
@@ -70,6 +69,15 @@ class EagleScanner(
             dao.deleteItemsChunked(diff.toDelete)
         }
 
+        // URI 自修复：1.7.0 曾错误地对 documentId 预编码，被 appendPath 二次编码后
+        // 存入索引（含 %25），mtime 未变导致 diff 不会重扫这些条目；
+        // 这里把 URI 含 %25 的已索引条目补进重扫列表（误伤"%"结尾的正常文件名
+        // 无害，upsert 是幂等的）
+        val brokenUriIds = dao.allImageUris()
+            .filter { "%25" in it.imageUri }
+            .map { it.id }
+        val toScan = (diff.toScan + brokenUriIds).distinct()
+
         var scanned = 0
         var missing = 0
         val batch = mutableListOf<ItemEntity>()
@@ -79,7 +87,7 @@ class EagleScanner(
         val toRemove = mutableListOf<String>()
         var skippedDeleted = 0
 
-        diff.toScan.forEachIndexed { index, id ->
+        toScan.forEachIndexed { index, id ->
             val metaText = try {
                 readText(docUri("images/$id.info/metadata.json"))
             } catch (e: Exception) {
@@ -140,8 +148,8 @@ class EagleScanner(
                 batchTags.clear()
             }
             // 进度回调节流：每条一次的状态写入会让 UI 侧持续重组
-            if ((index + 1) % 20 == 0 || index + 1 == diff.toScan.size) {
-                onProgress(Progress(index + 1, diff.toScan.size))
+            if ((index + 1) % 20 == 0 || index + 1 == toScan.size) {
+                onProgress(Progress(index + 1, toScan.size))
             }
         }
 

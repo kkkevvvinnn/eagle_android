@@ -66,6 +66,12 @@ data class IdModified(
     val lastModified: Long,
 )
 
+/** URI 自修复用的轻量投影。 */
+data class IdImageUri(
+    val id: String,
+    val imageUri: String,
+)
+
 data class TagCount(
     val tag: String,
     val cnt: Int,

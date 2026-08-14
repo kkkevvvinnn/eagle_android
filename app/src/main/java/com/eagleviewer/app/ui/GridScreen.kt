@@ -234,14 +234,10 @@ fun GridScreen(
                     ) {
                     LazyVerticalStaggeredGrid(
                         state = gridState,
-                        // 按宽度自适应：竖屏手机上 2/3/4 列，横屏/平板自动增加
-                        columns = StaggeredGridCells.Adaptive(
-                            minSize = when (columnCount) {
-                                2 -> 180.dp
-                                3 -> 130.dp
-                                else -> 100.dp
-                            },
-                        ),
+                        // 固定列数：捏合直接决定 2/3/4 列。
+                        // 之前用 Adaptive(100dp) 时竖屏手机宽度不足 400dp，
+                        // 选 4 列实际只显示 3 列
+                        columns = StaggeredGridCells.Fixed(columnCount),
                         modifier = Modifier
                             .fillMaxSize()
                             // 捏合预览：手势过程中整体连续缩放，松手后回弹

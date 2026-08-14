@@ -116,8 +116,11 @@ xxx.library/
 
 ### 5.1 扫描（EagleScanner + GridViewModel）
 
-1. **文档 URI 必须逐段 `Uri.encode`**：`DocumentsContract.buildDocumentUriUsingTree`
-   原样拼接 documentId，文件名含 `#`/`?` 会被 Uri 解析截断（该图静默从索引消失）。
+1. **文档 URI 直接拼原始 documentId，绝不自行编码**：`buildDocumentUriUsingTree` 内部用
+   `appendPath`（已核对 AOSP 源码），会对整个段做一次 URL 编码、provider 侧解码还原，
+   `#`/`?`/空格/中文文件名都安全。若自行 `Uri.encode` 预编码，会被 appendPath **二次编码**
+   （`%` → `%25`），所有含特殊字符的文件探测不到（1.7.0 曾因此回归，1.7.1 修复）。
+   扫描器内含 URI 自修复：已索引条目 `imageUri` 含 `%25` 的自动补进重扫列表（幂等，可常驻）。
 2. **mtime 为空映射时拒绝扫描**（抛 ScannerException）：同步工具写入中间态的 `{}`
    会让 diff 认为全库待删（全库索引被清空）。
 3. **mtime 单条坏值跳过**：null/字符串/浮点用 `runCatching` 逐条容错（一条脏数据中断整个扫描）。
@@ -157,7 +160,9 @@ xxx.library/
    Coil 请求 `crossfade(false)` + `.size(360)`、`ImageRequest` 用 `remember(item.id, useOriginal)` 缓存。
 2. **列数切换的视觉过渡**由整体 `gridAlpha` 淡入（0.3→1）负责；不要给逐项加位移动画
    （新组合的项无法参与位移动画，会"突然出现"，更割裂）。
-3. **捏合调列数**：指针数变化的那一帧 `calculateZoom()` 失真（新手指 previousPosition==position
+3. **捏合调列数**：网格用 `StaggeredGridCells.Fixed(columnCount)`，列数由捏合直接决定
+   （不要用 Adaptive——竖屏手机宽度不足时选 4 列实际只显示 3 列）。
+   指针数变化的那一帧 `calculateZoom()` 失真（新手指 previousPosition==position
    产生 zoom 尖峰），必须跳过该帧并重置累积系数；累积系数限幅 (0.5, 2)，预览限幅 (0.7, 1.4)，
    提交阈值 >1.3 减列 / <0.75 加列。
 4. **筛选变化不闪**：仅 `itemCount == 0 && refresh is Loading` 才显示转圈，有数据时后台刷新不换布局。
