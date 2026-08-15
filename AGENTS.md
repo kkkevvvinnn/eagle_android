@@ -158,8 +158,11 @@ xxx.library/
 
 ### 5.3 网格（GridScreen）
 
-1. **滚动性能三件套**（不要回退）：GridCell 不加 `animateItem`（滚动时每进项都动画是卡顿主因）、
-   Coil 请求 `crossfade(false)` + `.size(360)`、`ImageRequest` 用 `remember(item.id, useOriginal)` 缓存。
+1. **滚动性能**（不要回退）：GridCell 不加 `animateItem`（滚动时每进项都动画是卡顿主因）、
+   Coil 请求 `crossfade(false)` + `.size(360)` + `Precision.INEXACT`、
+   `ImageRequest` 用 `remember(item.id, useOriginal)` 缓存、
+   视口外手动预取（snapshotFlow 监听可见末位，提前 enqueue 之后 12 项的 Coil 请求；
+   staggered grid 在 foundation 1.8 没有 beyondBoundsItemCount API，勿找）。
 2. **列数切换的视觉过渡**由整体 `gridAlpha` 淡入（0.3→1）负责；不要给逐项加位移动画
    （新组合的项无法参与位移动画，会"突然出现"，更割裂）。
 3. **捏合调列数**：网格用 `StaggeredGridCells.Fixed(columnCount)`，列数由捏合直接决定

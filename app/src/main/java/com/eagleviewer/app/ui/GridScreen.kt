@@ -52,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,11 +70,13 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.eagleviewer.app.data.db.ItemWithTags
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun GridScreen(
     vm: GridViewModel,
@@ -225,6 +228,32 @@ fun GridScreen(
                     LaunchedEffect(columnCount) {
                         gridAlpha.snapTo(0.3f)
                         gridAlpha.animateTo(1f, tween(180))
+                    }
+
+                    // 缩略图预取：瀑布流组件在本 Compose 版本无视口外预取 API，
+                    // 手动对可见末位之后的 12 项提前 enqueue Coil 请求，把解码
+                    // 挪到滚动到达之前完成（高刷屏下"滚到才解码"必掉帧）。
+                    // 用 peek 访问（不触发分页加载）；prefetched 集合去重防重复 enqueue。
+                    val prefetched = remember { mutableSetOf<String>() }
+                    LaunchedEffect(Unit) {
+                        snapshotFlow {
+                            gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                        }.collect { lastVisible ->
+                            val end = minOf(lastVisible + 12, items.itemCount - 1)
+                            for (i in (lastVisible + 1)..end) {
+                                val data = items.peek(i) ?: continue
+                                if (prefetched.add(data.item.id)) {
+                                    if (prefetched.size > 2000) prefetched.clear()
+                                    context.imageLoader.enqueue(
+                                        ImageRequest.Builder(context)
+                                            .data(data.item.thumbUri ?: data.item.imageUri)
+                                            .size(360)
+                                            .precision(Precision.INEXACT)
+                                            .build(),
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     PullToRefreshBox(
@@ -398,12 +427,14 @@ private fun GridCell(
         ?: MaterialTheme.colorScheme.surfaceVariant
     // 缩略图缺失/损坏时降级加载原图
     var useOriginal by remember(item.id) { mutableStateOf(false) }
-    // 网格滚动性能：不做 crossfade 动画，解码尺寸限定在缩略图级别
+    // 网格滚动性能：不做 crossfade 动画，解码尺寸限定在缩略图级别；
+    // INEXACT 允许直接复用内存缓存中更小的位图，减少重复解码
     val context = LocalContext.current
     val imageRequest = remember(item.id, useOriginal) {
         ImageRequest.Builder(context)
             .data(if (useOriginal) item.imageUri else item.thumbUri ?: item.imageUri)
             .size(360)
+            .precision(Precision.INEXACT)
             .crossfade(false)
             .build()
     }
