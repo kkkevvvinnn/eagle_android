@@ -21,6 +21,7 @@ class SettingsRepository(private val context: Context) {
     private val keyFilterJson = stringPreferencesKey("filter_json")
     private val keyColumnCount = intPreferencesKey("column_count")
     private val keyThemeMode = intPreferencesKey("theme_mode")
+    private val keyIndexedRoot = stringPreferencesKey("indexed_root")
 
     val libraryUri: Flow<String> = context.dataStore.data.map { it[keyLibraryUri] ?: "" }
 
@@ -32,6 +33,9 @@ class SettingsRepository(private val context: Context) {
     }
 
     val lastScanTime: Flow<Long> = context.dataStore.data.map { it[keyLastScan] ?: 0L }
+
+    /** 当前索引对应的图库根目录（tree documentId）。空串 = 索引未绑定根目录或从未扫描。 */
+    val indexedRoot: Flow<String> = context.dataStore.data.map { it[keyIndexedRoot] ?: "" }
 
     /** 序列化后的 Filter，空串表示未保存过。 */
     val filterJson: Flow<String> = context.dataStore.data.map { it[keyFilterJson] ?: "" }
@@ -62,6 +66,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setLastScanTime(time: Long) {
         context.dataStore.edit { it[keyLastScan] = time }
+    }
+
+    suspend fun setIndexedRoot(treeDocId: String) {
+        context.dataStore.edit { it[keyIndexedRoot] = treeDocId }
     }
 
     suspend fun setFilterJson(json: String) {

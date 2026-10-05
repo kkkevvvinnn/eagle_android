@@ -32,6 +32,10 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE id IN (:ids)")
     suspend fun deleteItems(ids: List<String>)
 
+    /** 清空整个索引（根目录变更时全量重建用）。item_tag 由外键 CASCADE 一并清空。 */
+    @Query("DELETE FROM items")
+    suspend fun clearAll()
+
     /** 分享多选图片时按 id 取原图 URI。 */
     @Query("SELECT imageUri FROM items WHERE id IN (:ids)")
     suspend fun imageUrisFor(ids: List<String>): List<String>

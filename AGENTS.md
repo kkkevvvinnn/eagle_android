@@ -74,7 +74,7 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `data/EagleScanner.kt` | 增量扫描器（见 §5.1，约束最多） |
 | `data/ScanDiffer.kt` | diff 纯逻辑（JVM 可测） |
 | `data/ItemRepository.kt` | `Filter`/`Sort` 模型、动态筛选 SQL、相似配色检索 |
-| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、上次扫描时间） |
+| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、上次扫描时间、索引根目录） |
 | `data/db/Entities.kt` | `ItemEntity`、`ItemTagCrossRef`（CASCADE）、`ItemWithTags`、投影类 |
 | `data/db/ItemDao.kt` | 全部 DAO；**含 SQL_BATCH 分批封装** |
 | `data/db/AppDatabase.kt` | Room 单例，`fallbackToDestructiveMigration` |
@@ -139,6 +139,14 @@ xxx.library/
    缺失时 Coil `onError` 触发 `useOriginal` 降级原图（GridCell 已有该路径）。
 10. **`catch (e: Exception)` 之前必须先 `catch (CancellationException) { throw e }`**
     （结构化并发，取消不能被报成"扫描失败"）。
+11. **索引必须绑定图库根目录（tree documentId），根目录不一致时全量重建**：
+    DataStore 持久化 `indexedRoot`，扫描前与本次根目录比对，不一致先 `clearAll()` 再扫
+    （mtime 校验通过之后才清空，失败时不持久化新根目录）。同一份图库换路径后
+    mtime.json 内容完全相同，增量 diff 看不出任何变化，已索引条目的 URI 会永远指向
+    旧目录（Coil 全部加载失败、重扫无效）——只能靠根目录比对触发重建。
+    真实事故（1.7.3）：换同步工具后图库从 `/sdcard/eagle同步` 挪到
+    `/sdcard/Pictures/ShotSync/eagle同步`，99 条迁移后新增的条目用新路径索引正常，
+    165 条旧条目 URI 指向已删除的旧目录全部变灰块。
 
 ### 5.2 SQL 与分页（ItemDao / ItemRepository）
 
