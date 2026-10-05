@@ -56,9 +56,9 @@
 ```
 SAF tree URI ──► EagleScanner ──► Room (items + item_tag) ──► ItemRepository
                      ▲ 增量 diff(mtime.json)                      │ 动态 SQL
-                     │                                            ▼
+                     │ ▲ 根目录变更→clearAll 全量重建              ▼
 DataStore ◄── SettingsRepository              Paging3 (placeholders) ──► GridViewModel
-(目录/多图库/筛选/列数/主题)                                      │         │
+(目录/多图库/筛选/列数/主题/索引根目录)                             │         │
                                                   ┌───────────────┘         │
                                                   ▼                         ▼
                                             GridScreen               DetailScreen
