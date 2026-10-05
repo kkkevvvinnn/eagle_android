@@ -180,14 +180,10 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     suspend fun runScan(uri: String): Boolean = scanMutex.withLock {
         scanState.value = ScanUiState.Running(0, 0)
         try {
-            val indexedRoot = container.settings.indexedRoot.first()
-            val result = container.scanner.scan(uri, indexedRoot) { p ->
+            val result = container.scanner.scan(uri) { p ->
                 scanState.value = ScanUiState.Running(p.done, p.total)
             }
             container.settings.setLastScanTime(System.currentTimeMillis())
-            // 扫描成功才持久化索引所属根目录：失败时保持旧值，
-            // 下次扫描仍会触发重建（与「成功才持久化图库 URI」同一策略）
-            container.settings.setIndexedRoot(result.rootTreeDocId)
             val base = "扫描完成：更新 ${result.scanned} 张，移除 ${result.deleted} 张，共 ${result.total} 张"
             scanState.value = ScanUiState.Done(
                 if (result.missing > 0)

@@ -7,6 +7,7 @@ import com.eagleviewer.app.data.db.AppDatabase
 import com.eagleviewer.app.data.db.ItemEntity
 import com.eagleviewer.app.data.db.ItemTagCrossRef
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import java.io.FileNotFoundException
@@ -23,6 +24,7 @@ import java.io.FileNotFoundException
 class EagleScanner(
     private val context: Context,
     private val db: AppDatabase,
+    private val settings: SettingsRepository,
 ) {
 
     class ScannerException(message: String) : Exception(message)
@@ -35,24 +37,20 @@ class EagleScanner(
         val total: Int,
         /** 图片本体文件未同步到本机的条目数（已跳过索引）。 */
         val missing: Int = 0,
-        /** 本次扫描根目录的 tree documentId（扫描成功后由调用方持久化）。 */
-        val rootTreeDocId: String,
     )
 
     /**
-     * [indexedRoot] 是当前索引所属图库的 tree documentId（DataStore 持久化）。
+     * [SettingsRepository.indexedRoot] 持久化了当前索引所属图库的 tree documentId。
      * 与本次扫描的根目录不一致时清空索引全量重建：同一份图库换路径（tree docId 变了）
      * 后 mtime.json 内容完全相同，增量 diff 看不出任何变化，已索引条目的 URI 会
      * 永远指向旧目录（全部加载失败），必须靠根目录比对触发重建。
      */
     suspend fun scan(
         rootUriString: String,
-        indexedRoot: String = "",
         onProgress: (Progress) -> Unit = {},
     ): ScanResult = withContext(Dispatchers.IO) {
         val rootUri = Uri.parse(rootUriString)
         val treeDocId = DocumentsContract.getTreeDocumentId(rootUri)
-        val rebuild = indexedRoot != treeDocId
         // 直接拼接原始 documentId：buildDocumentUriUsingTree 内部用 appendPath，
         // 会对整个段做一次 URL 编码、provider 侧再解码还原，#/?/空格/中文都安全。
         // 切勿自行预编码——appendPath 会二次编码（% → %25），导致文件全部探测不到
@@ -76,9 +74,13 @@ class EagleScanner(
         }
 
         val dao = db.itemDao()
-        if (rebuild) {
-            // mtime.json 校验通过后才清空（读 mtime 失败时保持旧索引不动）
+        if (settings.indexedRoot.first() != treeDocId) {
+            // mtime.json 校验通过后才清空（读 mtime 失败时保持旧索引不动）。
+            // 新根目录必须在清空的同一时机持久化，而不是扫描成功后：若扫描中途进程被杀，
+            // 索引里已经写入了新根目录的部分 URI，存储值必须与之一致——否则之后扫描
+            // 同内容旧库时 diff 看不出变化，新旧混杂的 URI 会永久残留
             dao.clearAll()
+            settings.setIndexedRoot(treeDocId)
         }
         val indexed = dao.allModified().associate { it.id to it.lastModified }
         val diff = ScanDiffer.diff(indexed, mtime)
@@ -184,7 +186,6 @@ class EagleScanner(
             // 且 mtime 未变的回收站条目不会再被扫描统计到）
             total = dao.itemCountNow(),
             missing = missing,
-            rootTreeDocId = treeDocId,
         )
     }
 

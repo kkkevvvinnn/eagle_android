@@ -16,7 +16,7 @@ import com.eagleviewer.app.data.db.AppDatabase
 class AppContainer(context: Context) {
     val db: AppDatabase = AppDatabase.get(context)
     val settings: SettingsRepository = SettingsRepository(context)
-    val scanner: EagleScanner = EagleScanner(context, db)
+    val scanner: EagleScanner = EagleScanner(context, db, settings)
     val items: ItemRepository = ItemRepository(db)
 
     val imageLoader: ImageLoader = ImageLoader.Builder(context)
