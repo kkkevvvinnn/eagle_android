@@ -7,9 +7,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.eagleviewer.app.AppContainer
-import com.eagleviewer.app.data.EagleItemMeta
 import com.eagleviewer.app.data.EagleScanner
 import com.eagleviewer.app.data.Filter
+import com.eagleviewer.app.data.FilterPersistence
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
 import kotlinx.coroutines.CancellationException
@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.encodeToString
 
 /** 扫描进度/结果状态，设置页与网格页共用。 */
 sealed interface ScanUiState {
@@ -87,7 +86,7 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
             val savedFilter = container.settings.filterJson.first()
             if (savedFilter.isNotEmpty() && !filterTouched) {
                 runCatching {
-                    filter.value = EagleItemMeta.json.decodeFromString<Filter>(savedFilter)
+                    filter.value = FilterPersistence.decode(savedFilter)
                 }
             }
             val savedColumns = container.settings.columnCount.first().coerceIn(2, 4)
@@ -102,7 +101,7 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         // 筛选变化即持久化（写入量极小）
         viewModelScope.launch {
             runCatching {
-                container.settings.setFilterJson(EagleItemMeta.json.encodeToString(next))
+                container.settings.setFilterJson(FilterPersistence.encode(next))
             }
         }
     }

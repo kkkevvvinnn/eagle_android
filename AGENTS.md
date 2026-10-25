@@ -22,7 +22,7 @@
 ```bash
 ./gradlew :app:assembleDebug      # debug APK
 ./gradlew :app:assembleRelease    # release APK（本地无签名环境变量时回退 debug 签名）
-./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，23 个左右，必须全绿才能提交）
+./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，29 项，必须全绿才能提交）
 ./gradlew :app:installDebug       # 安装到已连接 adb 设备
 ```
 
@@ -74,6 +74,7 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `data/EagleScanner.kt` | 增量扫描器（见 §5.1，约束最多） |
 | `data/ScanDiffer.kt` | diff 纯逻辑（JVM 可测） |
 | `data/ItemRepository.kt` | `Filter`/`Sort` 模型、动态筛选 SQL、相似配色检索 |
+| data/FilterPersistence.kt | 筛选状态编解码：新默认 ANY，兼容旧省略模式的 ALL；新保存显式记录模式 |
 | `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、上次扫描时间、索引根目录） |
 | `data/db/Entities.kt` | `ItemEntity`、`ItemTagCrossRef`（CASCADE）、`ItemWithTags`、投影类 |
 | `data/db/ItemDao.kt` | 全部 DAO；**含 SQL_BATCH 分批封装** |
@@ -152,7 +153,7 @@ xxx.library/
 
 ### 5.2 SQL 与分页（ItemDao / ItemRepository）
 
-1. **一切 IN 列表必须分批（`SQL_BATCH = 400`）**：Android 8–11 的 SQLite 变量上限是 999
+1. **删除、分享等分批操作的 IN 列表必须分批（`SQL_BATCH = 400`）**：Android 8–11 的 SQLite 变量上限是 999
    （API 30+ 是 32766）。切库删除、多选分享的 id 列表都可能超限
    （→ `SQLiteException: too many SQL variables`，分享路径未捕获即崩溃）。
    用 `deleteItemsChunked` / `imageUrisForChunked`。
@@ -165,6 +166,8 @@ xxx.library/
    **必须** `withContext(Dispatchers.Default)`（万级库主线程秒级卡顿/ANR）。
    结果用 `CASE id WHEN ? THEN n` 保序，上限 `SIMILAR_LIMIT = 150`；
    `paletteDistance` 用 `minOfOrNull ?: MAX_VALUE`（残缺色板不能抛异常）。
+
+5. **标签默认与排序**：新筛选默认 ANY。多标签 ANY 先按命中的不同已选标签数降序，再按所选 Sort；所有基础排序末尾加 id ASC 保证并列稳定。ALL 集合语义保持。ANY 聚合 JOIN 只绑定一份标签，评分/搜索仍参数绑定。标签查询整体受老 SQLite 999 总变量限制（减评分/搜索各0或1）；当前 Room2.7.2 分页不额外绑定 LIMIT/OFFSET。本轮不实现海量已选标签临时表。
 
 ### 5.3 网格（GridScreen）
 
@@ -221,12 +224,15 @@ xxx.library/
 3. `searchActive` 要随恢复出的非空 `nameQuery` 自动展开（否则结果被过滤却找不到搜索框）。
 4. 主题模式：0 跟随系统 / 1 深色 / 2 浅色，DataStore 持久化，`EagleTheme(themeMode)` 即时切换。
 
+5. **筛选持久化须用 FilterPersistence**：旧非空 JSON 缺 andMode 按旧默认 ALL 恢复，显式 true/false 原样保留；无保存/新筛选默认 ANY，新保存始终写出 andMode。不得直接借新 Filter 默认值解释旧省略字段。原 touched 恢复门禁保持。
+
 ## 6. 测试
 
 纯 JVM 单测在 `app/src/test/java/com/eagleviewer/app/data/`：
 - `EagleItemMetaTest`：真实样本解析 + mtime 容错
 - `ScanDifferTest`：diff 逻辑
-- `FilterQueryTest`：动态 SQL 组装（含 LIKE 转义）
+- `FilterQueryTest`：动态 SQL、一次标签绑定、命中数排序及稳定并列、LIKE 转义
+- FilterPersistenceTest：旧省略模式兼容、新默认 ANY、显式模式与全字段往返
 - `ColorSearchTest`：色板距离 + CASE 保序 SQL + 残缺色板
 
 约定：改 `data/` 层的纯逻辑必须配/更新测试；测试样本用真实 Eagle 导出 JSON 文本内联。

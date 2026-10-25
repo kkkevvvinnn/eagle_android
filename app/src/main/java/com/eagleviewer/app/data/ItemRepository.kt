@@ -28,7 +28,7 @@ enum class Sort(val clause: String, val label: String) {
 @Serializable
 data class Filter(
     val tags: Set<String> = emptySet(),
-    val andMode: Boolean = true,
+    val andMode: Boolean = false,
     val minStar: Int = 0,
     val sort: Sort = Sort.BTIME_DESC,
     val nameQuery: String = "",
@@ -126,6 +126,15 @@ class ItemRepository(private val db: AppDatabase) {
         fun buildQuery(filter: Filter): SupportSQLiteQuery {
             val conditions = mutableListOf<String>()
             val args = mutableListOf<Any>()
+            val rankTagMatches = !filter.untaggedOnly && !filter.andMode && filter.tags.size > 1
+            val tagJoin = if (!filter.untaggedOnly && !filter.andMode && filter.tags.isNotEmpty()) {
+                // 标签只绑定一次：聚合每项命中的不同已选标签数，避免排序再复制 IN 参数。
+                val placeholders = filter.tags.joinToString(",") { "?" }
+                args.addAll(filter.tags)
+                " INNER JOIN (SELECT itemId, COUNT(DISTINCT tag) AS matchCount " +
+                    "FROM item_tag WHERE tag IN ($placeholders) GROUP BY itemId) AS tag_matches " +
+                    "ON items.id = tag_matches.itemId"
+            } else ""
 
             if (filter.minStar > 0) {
                 conditions += "star >= ?"
@@ -142,27 +151,28 @@ class ItemRepository(private val db: AppDatabase) {
             if (filter.untaggedOnly) {
                 // 未标记：不属于任何标签
                 conditions += "id NOT IN (SELECT DISTINCT itemId FROM item_tag)"
-            } else if (filter.tags.isNotEmpty()) {
+            } else if (filter.andMode && filter.tags.isNotEmpty()) {
                 val placeholders = filter.tags.joinToString(",") { "?" }
-                conditions += if (filter.andMode) {
-                    // 与：同时含有全部选中标签
-                    "id IN (SELECT itemId FROM item_tag WHERE tag IN ($placeholders) " +
-                        "GROUP BY itemId HAVING COUNT(DISTINCT tag) = ${filter.tags.size})"
-                } else {
-                    // 或：含有任一选中标签
-                    "id IN (SELECT DISTINCT itemId FROM item_tag WHERE tag IN ($placeholders))"
-                }
+                // 与：同时含有全部选中标签；保持既有集合语义。
+                conditions += "id IN (SELECT itemId FROM item_tag WHERE tag IN ($placeholders) " +
+                    "GROUP BY itemId HAVING COUNT(DISTINCT tag) = ${filter.tags.size})"
                 args.addAll(filter.tags)
             }
 
+            // 老 SQLite 总变量预算仍为 tags + 可选评分 + 可选搜索 <= 999；
+            // 当前 Room 2.7.2 的分页 LIMIT/OFFSET 使用整数字面量，不额外占变量。
             val sql = buildString {
-                append("SELECT * FROM items")
+                append(if (tagJoin.isEmpty()) "SELECT * FROM items" else "SELECT items.* FROM items")
+                append(tagJoin)
                 if (conditions.isNotEmpty()) {
                     append(" WHERE ")
                     append(conditions.joinToString(" AND "))
                 }
                 append(" ORDER BY ")
+                if (rankTagMatches) append("tag_matches.matchCount DESC, ")
                 append(filter.sort.clause)
+                // 基础排序字段相同也保持稳定，避免分页与大图索引在重查时漂移。
+                append(", id ASC")
             }
             return SimpleSQLiteQuery(sql, args.toTypedArray())
         }
