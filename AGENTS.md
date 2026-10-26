@@ -36,7 +36,7 @@
 - **推送到手机**：只在用户明确要求时执行 `adb install -r`；
   adb 路径 `~/Library/Android/sdk/platform-tools/adb`（设备 vivo V2408A，
   安装确认弹窗可能导致 INSTALL_FAILED_ABORTED，唤醒屏幕重试即可）
-- **CI/Release**：`.github/workflows/android-ci.yml`（push/PR 到 main 自动构建+测试）；
+- **CI/Release**：用户2026-10-26要求关闭GitHub CI。`android-ci.yml`已在GitHub禁用，触发器仅保留`workflow_dispatch`；不要自行启用、手动触发或恢复push/PR自动运行。提交前仍须本地构建和单测；
   `.github/workflows/release.yml`（push `v*` tag 自动签名构建并发 GitHub Releases）。
   签名材料在仓库 Secrets，本地 `release.keystore` 与 `credentials-*` 已在 `.gitignore`，**绝不能提交**
 - 用户本机的 Eagle 图库 `/Users/cwk/Pictures/我的灵感.library` **只读分析用，禁止修改其中任何内容**
@@ -241,6 +241,7 @@ xxx.library/
 2. 本地Room色板编码显式保留ratio=0。旧缓存曾省略0；显式scan只把缺ratio可疑ID纳入源文件重读，不推断缺值=0、不修改Eagle。源确认后缓存规范化；原源缺值按unknown，不能循环重扫。
 3. 完整URI+generation的颜色发布门禁在scan开始block，成功后ready，失败保守block；配合live URI、mapLatest取消及Eagerly共享投影，晚回包/重订阅/ABA不得发布旧根结果。该门禁与分组DataStore snapshot ticket各自保留；设备Room变动/进程生命周期仍未运行验证。
 4. FilterPersistence把旧similarColor低24位RGB迁至custom25；显式新colorCondition（包括null）优先。新保存显式语义版本/容差并删除legacy；旧省略andMode仍按ALL，fresh默认ANY/touched门禁保持。新主色chip明确≥15%，这是从旧nearest/top150切换到阈值交集语义，不称结果算法兼容。
+5. 自选色仅接受六个ASCII十六进制字符，不接受正负号、前缀或空白；输入无效时不可提交颜色。
 
 ## 6. 测试
 

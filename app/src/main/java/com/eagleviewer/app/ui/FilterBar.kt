@@ -299,7 +299,7 @@ private fun TagSheet(
 private fun ColorSheet(filter:Filter,onChange:((Filter)->Filter)->Unit,onDismiss:()->Unit) {
     val condition=filter.effectiveColor
     var hex by remember(condition?.rgb) { mutableStateOf("%06X".format(condition?.rgb?.argb?.and(0xffffff) ?: 0xff0000)) }
-    val parsed=hex.takeIf { it.length==6 }?.toIntOrNull(16)
+    val parsed=hex.takeIf { it.matches(Regex("[0-9A-Fa-f]{6}")) }?.toIntOrNull(16)
     ModalBottomSheet(onDismissRequest=onDismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
             Row(verticalAlignment=Alignment.CenterVertically) {

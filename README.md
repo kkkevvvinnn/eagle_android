@@ -1,6 +1,6 @@
 # Eagle 图库浏览器（Android）
 
-[![Android CI](https://github.com/kkkevvvinnn/eagle_android/actions/workflows/android-ci.yml/badge.svg)](https://github.com/kkkevvvinnn/eagle_android/actions/workflows/android-ci.yml)
+GitHub 自动 CI 已按要求关闭；提交前在本机构建并运行单元测试。
 [![Release](https://img.shields.io/github/v/release/kkkevvvinnn/eagle_android)](https://github.com/kkkevvvinnn/eagle_android/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
