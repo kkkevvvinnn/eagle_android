@@ -1,0 +1,22 @@
+Feasibility-only Kotlin port; not integrated into Android product.
+
+SwiftMmcq.kt translates the selected ColorThiefSwift MMCQ implementation:
+  repository https://github.com/yamoridon/ColorThiefSwift
+  commit ac04a95acca965f8030a01293c31621b2a812c39
+  source ColorThiefSwift/Classes/MMCQ.swift
+  Copyright (c) 2019 Kazuki Ohara <kazuki.ohara@gmail.com>
+  MIT License: accompanying LICENSE contains the full upstream notice.
+  Upstream thanks Lokesh Dhakar and Sven Woltmann.
+
+The separate premultiplied RGBA adapter and merged, population-sorted reducer
+follow this workspace's macos/PaletteExtraction.swift. The port removes native
+platform-color and nearest-color APIs and fixes the quantizer inputs to the
+production contract (quality1, ignoreWhite=false, maxColors5). Histograms,
+median cuts, counts, averages and queue ordering follow the pinned Swift core.
+The unified cross-language diff and source map document changes; preserving
+algorithm semantics is demonstrated for the attached fixtures, not every image.
+
+Other downloaded Java/RN/old-Android files are evidence, not port inputs.
+Their file headers declare Creative Commons Attribution 2.5, as recorded in
+the source manifest and reports. This notice does not relicense those files
+or give a legal opinion about upstream provenance.

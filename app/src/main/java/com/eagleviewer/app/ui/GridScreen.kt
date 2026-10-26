@@ -87,6 +87,7 @@ fun GridScreen(
     val scope = rememberCoroutineScope()
     val items = vm.pagingData.collectAsLazyPagingItems()
     val filter by vm.filter.collectAsState()
+    val paletteProgress by vm.paletteProgress.collectAsState()
     val tagCatalog by vm.tagCatalog.collectAsState()
     val itemCount by vm.itemCount.collectAsState()
     val scanState by vm.scanState.collectAsState()
@@ -200,10 +201,20 @@ fun GridScreen(
                 onFilterChange = vm::updateFilter,
             )
 
+            paletteProgress?.let { progress ->
+                androidx.compose.foundation.layout.Row(
+                    Modifier.fillMaxWidth().padding(horizontal=12.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                ) {
+                    Text("正在准备主色 ${progress.done} / ${progress.total}",Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.TextButton(onClick={ vm.updateFilter { it.clearColor() } }) { Text("清除主色") }
+                }
+            }
+
             when {
                 // 仅在没有任何数据时显示转圈；已有数据时刷新在后台进行，
                 // 避免筛选变化时网格与转圈来回切换造成的「双闪」
-                items.itemCount == 0 && items.loadState.refresh is LoadState.Loading -> {
+                items.itemCount == 0 && (items.loadState.refresh is LoadState.Loading || paletteProgress != null) -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }

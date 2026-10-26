@@ -13,6 +13,11 @@ import com.eagleviewer.app.data.ColorPagingSource
 import com.eagleviewer.app.data.ColorPublicationGate
 import com.eagleviewer.app.data.ColorTicket
 import com.eagleviewer.app.data.db.TagCount
+import com.eagleviewer.app.data.PaletteRequestGate
+import com.eagleviewer.app.data.PaletteProgress
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -37,7 +42,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -66,6 +70,11 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     private val colorRoot=container.settings.libraryUri.stateIn(viewModelScope,SharingStarted.Eagerly, "")
     private val colorGate=ColorPublicationGate()
     private val colorTicket=MutableStateFlow(colorGate.current)
+    // AppContainer outlives a ViewModel; generation alone may restart at zero in a new session.
+    private val paletteSession=java.util.UUID.randomUUID().toString()
+    private val paletteRequests=PaletteRequestGate()
+    private val _paletteProgress=MutableStateFlow<PaletteProgress?>(null)
+    val paletteProgress:StateFlow<PaletteProgress?> = _paletteProgress
     private sealed interface Prepared {
         data class Sql(val query:SupportSQLiteQuery):Prepared
         data class Color(val projection:ColorProjection):Prepared
@@ -73,24 +82,41 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     private val preparedQuery = combine(
-        filter.debounce { if(it.nameQuery.isNotEmpty()) 300L else 0L },
+        filter,
         colorRoot, colorTicket,
     ) { f,root,ticket -> Triple(f,root,ticket) }
         .flatMapLatest { (f,root,ticket) ->
+            paletteRequests.invalidate()
+            _paletteProgress.value=null
             val condition=f.effectiveColor
-            if(condition==null) flowOf<Prepared>(Prepared.Sql(container.items.prepareQuery(f)))
+            if(condition==null) flow<Prepared> {
+                if(f.nameQuery.isNotEmpty()) delay(300)
+                emit(Prepared.Sql(container.items.prepareQuery(f)))
+            }
             else flow<Prepared> {
                 val key=if(ticket.generation==0L) ticket.copy(root=root) else ticket
                 // Invalidate immediately while roots change or Room assembles the next snapshot.
                 emit(Prepared.Color(ColorProjection.empty(key)))
+                if(f.nameQuery.isNotEmpty()) delay(300)
                 if(key.ready && key.root==root) {
                     emitAll(container.items.observeItems(container.items.prepareQuery(f.clearColor()))
                         .mapLatest { rows ->
-                            val projection=withContext(Dispatchers.Default) { ColorProjection.create(key,rows,condition) }
-                            // Check live generation as well as coroutine cancellation, including ABA.
-                            val live=colorTicket.value
-                            if(live==ticket && colorRoot.value==root && (live.generation==0L || colorGate.accepts(key,root)))
-                                Prepared.Color(projection) else Prepared.Color(ColorProjection.empty(key))
+                            val request=paletteRequests.begin(key)
+                            fun current()=paletteRequests.accepts(request) && filter.value==f && colorTicket.value==ticket &&
+                                colorRoot.value==root && (ticket.generation==0L || colorGate.accepts(key,root))
+                            try {
+                                val projection=withContext(Dispatchers.Default) {
+                                    ColorProjection.create(key,rows,condition,
+                                        palette={ container.localPalettes.resolve(key,it,paletteSession) },
+                                        progress={ done,total ->
+                                            if(current()) _paletteProgress.value=PaletteProgress(request,done,total)
+                                        })
+                                }
+                                currentCoroutineContext().ensureActive()
+                                if(current()) Prepared.Color(projection) else Prepared.Color(ColorProjection.empty(key))
+                            } finally {
+                                if(paletteRequests.accepts(request)) _paletteProgress.value=null
+                            }
                         })
                 }
             }
@@ -165,6 +191,8 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     fun updateFilter(transform: (Filter) -> Filter) {
         filterTouched = true
         val next = transform(filter.value)
+        paletteRequests.invalidate()
+        _paletteProgress.value=null
         filter.value = next
         // 筛选变化即持久化（写入量极小）
         viewModelScope.launch {
@@ -246,6 +274,8 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 执行扫描，返回是否成功。并发调用经 [scanMutex] 串行化。 */
     suspend fun runScan(uri: String): Boolean = scanMutex.withLock {
         scanState.value = ScanUiState.Running(0, 0)
+        paletteRequests.invalidate()
+        _paletteProgress.value=null
         val ticket=colorGate.begin(uri)
         colorTicket.value=ticket
         var succeeded=false

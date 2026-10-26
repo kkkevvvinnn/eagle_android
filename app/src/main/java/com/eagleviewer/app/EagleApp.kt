@@ -18,6 +18,13 @@ class AppContainer(context: Context) {
     val settings: SettingsRepository = SettingsRepository(context)
     val scanner: EagleScanner = EagleScanner(context, db, settings)
     val items: ItemRepository = ItemRepository(db)
+    val localPalettes = com.eagleviewer.app.data.LocalPaletteResolver(
+        com.eagleviewer.app.data.SafPaletteCapture(context.applicationContext),
+        com.eagleviewer.app.data.AndroidPaletteDecoder(),
+        com.eagleviewer.app.data.DeferredPaletteCache {
+            com.eagleviewer.app.data.FilePaletteCache(com.eagleviewer.app.data.privatePaletteDirectory(context.dataDir,context.cacheDir,"local-palettes-v1"))
+        },
+    )
 
     val imageLoader: ImageLoader = ImageLoader.Builder(context)
         .components {

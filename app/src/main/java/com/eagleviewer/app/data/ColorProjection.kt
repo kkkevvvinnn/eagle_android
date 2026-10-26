@@ -29,15 +29,20 @@ data class ColorProjection(val ticket:ColorTicket,val rows:List<ItemWithTags>,va
         (if(live.generation==0L) ticket.generation==0L else ticket==live)
     companion object {
         fun empty(ticket:ColorTicket)=ColorProjection(ticket,emptyList(),emptyList())
-        suspend fun create(ticket:ColorTicket,input:List<ItemWithTags>,condition:ColorCondition):ColorProjection {
+        suspend fun create(ticket:ColorTicket,input:List<ItemWithTags>,condition:ColorCondition,
+            palette:suspend (ItemWithTags)->PaletteState={ RawPalette.parse(it.item.palettesJson) },
+            progress:(Int,Int)->Unit={ _,_ -> }):ColorProjection {
             val rows=ArrayList<ItemWithTags>(); val counts=linkedMapOf<String,Int>()
-            for(row in input) {
+            progress(0,input.size)
+            for((index,row) in input.withIndex()) {
                 currentCoroutineContext().ensureActive()
-                if(ColorFilter.matches(RawPalette.parse(row.item.palettesJson),condition)) {
+                if(ColorFilter.matches(palette(row),condition)) {
                     rows+=row
                     row.tagNames.distinct().forEach { counts[it]=(counts[it]?:0)+1 }
                 }
+                progress(index+1,input.size)
             }
+            currentCoroutineContext().ensureActive()
             return ColorProjection(ticket,rows.toList(),counts.map { TagCount(it.key,it.value) })
         }
     }

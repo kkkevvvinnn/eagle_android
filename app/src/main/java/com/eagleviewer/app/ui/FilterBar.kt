@@ -324,7 +324,7 @@ private fun ColorSheet(filter:Filter,onChange:((Filter)->Filter)->Unit,onDismiss
                     onChange { f -> f.copy(similarColor=null,colorCondition=f.effectiveColor?.copy(tolerance=value.toDouble())) }
                 },valueRange=10f..60f,steps=49)
             }
-            Text("缺失或无效色板暂不参与；本版本不从图片补算。",style=MaterialTheme.typography.bodySmall)
+            Text("缺少主色信息时会自动分析；暂时无法分析的图片可清除主色后查看。",style=MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -22,7 +22,7 @@
 ```bash
 ./gradlew :app:assembleDebug      # debug APK
 ./gradlew :app:assembleRelease    # release APK（本地无签名环境变量时回退 debug 签名）
-./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，51 项，必须全绿才能提交）
+./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，72 项，必须全绿才能提交）
 ./gradlew :app:installDebug       # 安装到已连接 adb 设备
 ```
 
@@ -77,6 +77,7 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | data/FilterPersistence.kt | 筛选状态编解码：新默认 ANY，兼容旧省略模式的 ALL；新保存显式记录模式 |
 | `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、扫描时间、索引根目录及绑定完整 URI 的标签快照） |
 | `data/ColorFilter.kt` / `data/ColorProjection.kt` | 主色判定、坏色板隔离、同一颜色结果与计数、完整URI/generation门禁及带占位符内存分页 |
+| `data/AndroidPalette.kt` / `data/LocalPalette.kt` / `data/SwiftMmcq.kt` | 当前范围缺色板补算、SAF只读快照、受限软件解码、私有严格缓存及固定MIT内核 |
 | `data/TagCatalog.kt` | 辅助文件有界严格解析、Mac30天新增频率、UTF8字面排序、分组目录与标签缓存 ticket |
 | `data/db/Entities.kt` | `ItemEntity`、`ItemTagCrossRef`（CASCADE）、`ItemWithTags`、投影类 |
 | `data/db/ItemDao.kt` | 全部 DAO；**含 SQL_BATCH 分批封装** |
@@ -243,6 +244,16 @@ xxx.library/
 4. FilterPersistence把旧similarColor低24位RGB迁至custom25；显式新colorCondition（包括null）优先。新保存显式语义版本/容差并删除legacy；旧省略andMode仍按ALL，fresh默认ANY/touched门禁保持。新主色chip明确≥15%，这是从旧nearest/top150切换到阈值交集语义，不称结果算法兼容。
 5. 自选色仅接受六个ASCII十六进制字符，不接受正负号、前缀或空白；输入无效时不可提交颜色。
 
+### 5.9 当前范围主色补算（M5c2）
+
+1. 只有主色条件开启时才解析当前基础SQL范围。有效Eagle色板直接用，不能打开源或查询派生缓存。unknown由注入resolver串行处理，全部完成后一次发布同一不可变ColorProjection/计数，保持原matchCount/Sort/id及详情全局index；不得逐张增长列表移动预览位置。进度独立请求序号和完整URI/generation门禁，处理中不显示最终零结果提示；清色/改筛选/换库/重扫取消旧工作。
+2. SAF源只读校验scheme/authority/tree/item文档路径，不重新Uri.encode。捕获到独占app-cache临时文件并同流SHA256，解码同一快照；512MiB及50MP界，BitmapFactory软件ARGB8888/sRGB，sample请求≤256后缩至长边≤128，检查实际大小并recycle。getPixels已经是straight sRGB ARGB，不能再次反预乘。支持PNG/JPEG/HEIC/static WebP；明显动画/损坏WebP拒绝。独立Android algorithmVersion标明noExif/采样策略，不声称ImageIO像素完全一致或codec内部RSS有界。
+3. 只复用已独立验证的pinned Mac Swift→Kotlin内核，生产改动仅package/header。MIT全文与NOTICE必须进入APK assets/third_party/ColorThiefSwift；不引入被淘汰Java旧fork或新依赖。alpha≥125参与，透明空unknown非黑；vbox populations合并，最多5色、pop降序/RGB升序、比例100*pop/eligible。
+4. app-private缓存单记录严格UTF8/JSON≤16KiB，绑定完整root/sourceURI/algorithm并核fresh sourceSHA；校验schema、尺寸、eligible/population/ratio/唯一颜色与顺序。磁盘≤10k条/32MiB，峰值含旧target和新temp；无安全临时slot可跳过cache写，不破坏原条目。只对平台可信dataDir/cacheDir先canonical并确认cache仍在真实app dataDir内，再拼自有叶；不可canonical自有cache/scratch叶。自有路径existing目录/所有祖先/entry链接在读写/cleanup前拒绝，cache故障miss/no-op，scratch故障unknown，不能因此应用启动失败。只声明预先存在链接检查，不声称防恶意同UID并发替换。
+5. 磁盘一次cold index后增量计数，避免逐条全目录stat。内存仅palette状态≤10k，key含root/scan generation/sourceURI/lastModified/itemID/algorithm和每VM唯一UUID；同epoch换色复用，新scan/session重新捕获核SHA，不能无源复用旧disk。超过cap会重新捕获，不承诺无限复用。
+6. 普通finally清理成功/错误/取消快照；进程被杀不执行finally，最多留一份本串行路径快照，下一capture安全回收专用snapshot-*.tmp，删不掉则拒绝新capture以免累积。JNI解码不能立即中断，返回后检查取消再丢弃。缓存/源/OOM为可重试unknown，不弹模态错误、不失败图片浏览。
+7. JVM fake验证cache/source/取消与纯文件边界，SDK编译/文档只证明API接线。未真机/模拟器验证SAF provider、Bitmap/ICC/HEIC/缩放、Compose、进程生命周期、性能或RSS。继承generation0/中断切库索引恢复边界，不将本阶段称为已解决。
+
 ## 6. 测试
 
 纯 JVM 单测在 `app/src/test/java/com/eagleviewer/app/data/`：
@@ -251,6 +262,7 @@ xxx.library/
 - `FilterQueryTest`：动态 SQL、一次标签绑定、命中数排序及稳定并列、LIKE 转义
 - FilterPersistenceTest：旧省略模式兼容、新默认 ANY、显式模式与全字段往返
 - `ColorSearchTest`：54状态/4266 Mac原生golden布尔、10数值向量、色板隔离与ratio0往返/旧缓存repair、旧状态迁移、1203行与分页/计数、取消及异步ABA门禁
+- `LocalPaletteTest`：只读快照/hash、路径与链接拒绝、严格缓存/配额/原子失败、透明未知、同epoch/新session、残留清理、取消/ABA和完整投影
 - `TagCatalogTest` / `TagCatalogGoldenTest`：严格辅助schema、边界、独立fallback/取消、Mac生产Python golden、字面排序、持久快照ticket及跨root隔离
 - `TagCountQueryTest`：完整结果双计数、绑定转发与类似配色同集合查询
 
@@ -261,7 +273,7 @@ UI/手势无自动化测试，靠真机验证（构建通过 + 用户在手机�
 
 - 索引不区分图库（单表对应当前激活库，切库即重建）；`removeLibrary` 不主动清索引
 - 筛选变化后网格滚动位置重置（paging 重建，rememberSaveable 状态销毁）
-- 主色筛选只使用有效已有色板；缺失/坏色板在颜色开启时暂不参与，颜色关闭可正常浏览。Android本地补算缓存M5c2尚未实现。颜色路径驻留预筛元数据/标签，不加载原图；几千项工程目标尚无设备内存测量。
+- 主色筛选优先有效Eagle色板，缺失/坏色板仅在当前基础筛选范围内本地补算；仍无法分析则unknown，关闭颜色正常浏览。派生数据仅应用私有缓存，不改Eagle/Room palette元数据；详情色卡仍只显示Eagle色板。实际Android解码、设备性能和大库内存未验证。
 - 分享 URI 顺序按数据库返回序，不保选择顺序
 - 详情页快速甩动跨页时逐页串行加载（Paging 占位符模式的固有限制）
 
