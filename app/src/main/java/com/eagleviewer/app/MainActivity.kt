@@ -98,7 +98,7 @@ fun AppNavHost(container: AppContainer) {
                     onBack = { nav.popBackStack() },
                     onFindSimilar = { color ->
                         gridVm.updateFilter { f ->
-                            f.copy(tags = emptySet(), untaggedOnly = false, similarColor = color)
+                            f.copy(similarColor = null, colorCondition = com.eagleviewer.app.data.ColorCondition(custom = com.eagleviewer.app.data.PaletteRGB.fromInt(color)))
                         }
                         nav.popBackStack()
                     },

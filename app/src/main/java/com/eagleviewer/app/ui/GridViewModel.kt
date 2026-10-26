@@ -5,6 +5,18 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.PagingData
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.sqlite.db.SupportSQLiteQuery
+import com.eagleviewer.app.data.ColorProjection
+import com.eagleviewer.app.data.ColorPagingSource
+import com.eagleviewer.app.data.ColorPublicationGate
+import com.eagleviewer.app.data.ColorTicket
+import com.eagleviewer.app.data.db.TagCount
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.emitAll
 import androidx.paging.cachedIn
 import com.eagleviewer.app.AppContainer
 import com.eagleviewer.app.data.EagleScanner
@@ -51,19 +63,58 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 多选模式下的选中 id 集合；空集合 = 非多选模式。 */
     val selection = MutableStateFlow<Set<String>>(emptySet())
 
+    private val colorRoot=container.settings.libraryUri.stateIn(viewModelScope,SharingStarted.Eagerly, "")
+    private val colorGate=ColorPublicationGate()
+    private val colorTicket=MutableStateFlow(colorGate.current)
+    private sealed interface Prepared {
+        data class Sql(val query:SupportSQLiteQuery):Prepared
+        data class Color(val projection:ColorProjection):Prepared
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-    private val preparedQuery = filter
-        .debounce { if (it.nameQuery.isNotEmpty()) 300L else 0L }
-        .mapLatest { container.items.prepareQuery(it) }
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+    private val preparedQuery = combine(
+        filter.debounce { if(it.nameQuery.isNotEmpty()) 300L else 0L },
+        colorRoot, colorTicket,
+    ) { f,root,ticket -> Triple(f,root,ticket) }
+        .flatMapLatest { (f,root,ticket) ->
+            val condition=f.effectiveColor
+            if(condition==null) flowOf<Prepared>(Prepared.Sql(container.items.prepareQuery(f)))
+            else flow<Prepared> {
+                val key=if(ticket.generation==0L) ticket.copy(root=root) else ticket
+                // Invalidate immediately while roots change or Room assembles the next snapshot.
+                emit(Prepared.Color(ColorProjection.empty(key)))
+                if(key.ready && key.root==root) {
+                    emitAll(container.items.observeItems(container.items.prepareQuery(f.clearColor()))
+                        .mapLatest { rows ->
+                            val projection=withContext(Dispatchers.Default) { ColorProjection.create(key,rows,condition) }
+                            // Check live generation as well as coroutine cancellation, including ABA.
+                            val live=colorTicket.value
+                            if(live==ticket && colorRoot.value==root && (live.generation==0L || colorGate.accepts(key,root)))
+                                Prepared.Color(projection) else Prepared.Color(ColorProjection.empty(key))
+                        })
+                }
+            }
+        }
+        .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
+
+    private fun currentProjection(projection:ColorProjection):Boolean =
+        projection.isCurrent(colorTicket.value,colorRoot.value)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val pagingData: Flow<PagingData<ItemWithTags>> = preparedQuery
-        .flatMapLatest { container.items.pagedItems(it) }
-        .cachedIn(viewModelScope)
+        .flatMapLatest { prepared -> when(prepared) {
+            is Prepared.Sql -> container.items.pagedItems(prepared.query)
+            is Prepared.Color -> if(!currentProjection(prepared.projection) || prepared.projection.rows.isEmpty()) flowOf(PagingData.empty()) else
+                Pager(PagingConfig(pageSize=60,initialLoadSize=120,enablePlaceholders=true)) {
+                    ColorPagingSource(prepared.projection.rows)
+                }.flow
+        } }.cachedIn(viewModelScope)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val currentTagCounts = preparedQuery.flatMapLatest { container.items.currentTagCounts(it) }
+    private val currentTagCounts:Flow<List<TagCount>> = preparedQuery.flatMapLatest { prepared -> when(prepared) {
+        is Prepared.Sql -> container.items.currentTagCounts(prepared.query)
+        is Prepared.Color -> flowOf(if(currentProjection(prepared.projection)) prepared.projection.counts else emptyList())
+    } }
 
     val tagCatalog: StateFlow<TagCatalog> = combine(
         container.settings.tagSnapshot, container.settings.libraryUri,
@@ -195,6 +246,9 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 执行扫描，返回是否成功。并发调用经 [scanMutex] 串行化。 */
     suspend fun runScan(uri: String): Boolean = scanMutex.withLock {
         scanState.value = ScanUiState.Running(0, 0)
+        val ticket=colorGate.begin(uri)
+        colorTicket.value=ticket
+        var succeeded=false
         try {
             val result = container.scanner.scan(uri) { p ->
                 scanState.value = ScanUiState.Running(p.done, p.total)
@@ -206,6 +260,7 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
                     "$base；${result.missing} 张图片文件未同步到本机，同步补全后重新扫描即可"
                 else base
             )
+            succeeded=true
             true
         } catch (e: CancellationException) {
             // 结构化并发：取消不是扫描失败
@@ -217,6 +272,8 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         } catch (e: Exception) {
             scanState.value = ScanUiState.Error("扫描失败：${e.message}")
             false
+        } finally {
+            colorTicket.value=colorGate.finish(ticket,succeeded)
         }
     }
 

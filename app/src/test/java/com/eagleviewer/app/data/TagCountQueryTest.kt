@@ -39,16 +39,6 @@ class TagCountQueryTest {
         assertEquals(999, max.argCount)
     }
 
-    @Test fun `same color ranked list is used by paging and counts including empty result`() {
-        for (ids in listOf(emptyList(), listOf("i3", "i1"), (1..150).map { "color$it" })) {
-            val result = ItemRepository.buildSimilarQuery(ids)
-            val count = ItemRepository.buildTagCountQuery(result)
-            assertEquals(args(result), args(count))
-            assertEquals(ids.size * 2, count.argCount)
-            assertTrue(count.sql.contains(result.sql))
-        }
-    }
-
     /** Optional evidence export contains the actual production Kotlin SQL and bound parameters. */
     @Test fun `export bounded real queries for host SQLite semantic execution`() {
         val output = System.getenv("M5B_SQL_EXPORT") ?: return
@@ -64,13 +54,11 @@ class TagCountQueryTest {
             "slash" to Filter(nameQuery = "\\_%"),
         )
         val queries = filters.mapValues { ItemRepository.buildQuery(it.value) }.toMutableMap()
-        queries["similar"] = ItemRepository.buildSimilarQuery(listOf("i3", "i1"))
-        queries["similar_empty"] = ItemRepository.buildSimilarQuery(emptyList())
-        queries["similar_150"] = ItemRepository.buildSimilarQuery((1..150).map { "color$it" })
+        queries["color_prefilter"] = ItemRepository.buildQuery(Filter(tags=linkedSetOf("a","b"),colorCondition=ColorCondition(common=CommonPaletteColor.red)))
         for (sort in Sort.entries) queries["all_${sort.name}"] = ItemRepository.buildQuery(
             Filter(tags = linkedSetOf("a", "b"), andMode = true, sort = sort))
         val json = buildJsonObject {
-            put("origin", "ItemRepository.buildQuery/buildSimilarQuery/buildTagCountQuery JVM export")
+            put("origin", "ItemRepository.buildQuery/buildTagCountQuery JVM export")
             put("queries", buildJsonObject {
                 queries.forEach { (name, query) ->
                     val count = ItemRepository.buildTagCountQuery(query)

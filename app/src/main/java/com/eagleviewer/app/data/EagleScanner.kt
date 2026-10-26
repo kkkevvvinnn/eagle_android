@@ -108,7 +108,11 @@ class EagleScanner(
         val brokenUriIds = dao.allImageUris()
             .filter { "%25" in it.imageUri }
             .map { it.id }
-        val toScan = (diff.toScan + brokenUriIds).distinct()
+        // Old local serialization dropped default ratio=0. Reread ambiguous source palettes
+        // once instead of treating missing ratio as black/zero or inventing metadata.
+        val legacyPaletteIds=dao.paletteRepairCandidates()
+            .filter { RawPalette.needsLegacyRatioRepair(it.palettesJson) }.map { it.id }
+        val toScan = (diff.toScan + brokenUriIds + legacyPaletteIds).distinct()
 
         var scanned = 0
         var missing = 0
@@ -169,7 +173,7 @@ class EagleScanner(
                         thumbUri = thumbDocUri.toString(),
                         paletteColor = meta.primaryColor,
                         palettesJson = if (meta.palettes.isEmpty()) ""
-                            else EagleItemMeta.json.encodeToString(meta.palettes),
+                            else RawPalette.encode(meta.palettes),
                     )
                     batchTags += meta.tags.distinct().map { ItemTagCrossRef(meta.id, it) }
                     scanned++

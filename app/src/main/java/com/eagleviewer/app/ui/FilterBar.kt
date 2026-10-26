@@ -61,6 +61,7 @@ fun FilterBar(
     onFilterChange: ((Filter) -> Filter) -> Unit,
 ) {
     var showTagSheet by remember { mutableStateOf(false) }
+    var showColorSheet by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -69,23 +70,13 @@ fun FilterBar(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 相似配色检索激活时，最前面显示色点 chip，点击退出
-        filter.similarColor?.let { color ->
-            FilterChip(
-                selected = true,
-                onClick = { onFilterChange { it.copy(similarColor = null) } },
-                label = { Text("相似配色") },
-                leadingIcon = {
-                    Box(
-                        Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(Color(color)),
-                    )
-                },
-            )
-            Spacer(Modifier.width(6.dp))
-        }
+        FilterChip(
+            selected=filter.effectiveColor!=null,
+            onClick={ showColorSheet=true },
+            label={ Text(if(filter.effectiveColor==null) "主色" else "主色 ≥15%") },
+            leadingIcon={ filter.effectiveColor?.let { Box(Modifier.size(14.dp).clip(CircleShape).background(Color(it.rgb.argb))) } },
+        )
+        Spacer(Modifier.width(6.dp))
         if (filter.untaggedOnly) {
             FilterChip(
                 selected = true,
@@ -121,6 +112,7 @@ fun FilterBar(
         SortMenu(filter.sort, onSortChange = { s -> onFilterChange { it.copy(sort = s) } })
     }
 
+    if (showColorSheet) ColorSheet(filter,onFilterChange) { showColorSheet=false }
     if (showTagSheet) {
         TagSheet(
             filter = filter,
@@ -246,12 +238,12 @@ private fun TagSheet(
                     },
                 )
             }
-            // 「未标记」与标签多选、相似配色互斥
+            // 未标记与标签互斥；主色与其交集
             FilterChip(
                 selected = filter.untaggedOnly,
                 onClick = {
                     onFilterChange { f ->
-                        f.copy(untaggedOnly = !f.untaggedOnly, tags = emptySet(), similarColor = null)
+                        f.copy(untaggedOnly = !f.untaggedOnly, tags = emptySet())
                     }
                 },
                 label = { Text("未标记（无标签图片）") },
@@ -287,7 +279,7 @@ private fun TagSheet(
                                     onClick = {
                                         onFilterChange { f ->
                                             val next = if (tc.tag in f.tags) f.tags - tc.tag else f.tags + tc.tag
-                                            f.copy(tags = next, untaggedOnly = false, similarColor = null)
+                                            f.copy(tags = next, untaggedOnly = false)
                                         }
                                     },
                                     label = { Text("${tc.tag} (${tc.current}/${tc.global})") },
@@ -297,6 +289,42 @@ private fun TagSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ColorSheet(filter:Filter,onChange:((Filter)->Filter)->Unit,onDismiss:()->Unit) {
+    val condition=filter.effectiveColor
+    var hex by remember(condition?.rgb) { mutableStateOf("%06X".format(condition?.rgb?.argb?.and(0xffffff) ?: 0xff0000)) }
+    val parsed=hex.takeIf { it.length==6 }?.toIntOrNull(16)
+    ModalBottomSheet(onDismissRequest=onDismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+        Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                Text("主色筛选",style=MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick={ onChange { it.clearColor() } }) { Text("清除主色") }
+            }
+            Text("匹配色块占比累计 ≥15%；与标签、评分、搜索交集。按当前排序显示全部结果。",style=MaterialTheme.typography.bodySmall)
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                com.eagleviewer.app.data.CommonPaletteColor.entries.forEach { color ->
+                    FilterChip(selected=condition?.common==color,onClick={ onChange { it.copy(similarColor=null,
+                        colorCondition=com.eagleviewer.app.data.ColorCondition(common=color,tolerance=it.effectiveColor?.tolerance?:25.0)) } },
+                        label={ Text(color.label) },leadingIcon={ Box(Modifier.size(14.dp).clip(CircleShape).background(Color(0xff000000.toInt() or color.swatch))) })
+                }
+            }
+            OutlinedTextField(value=hex,onValueChange={ hex=it },label={ Text("自选 sRGB HEX（6位，不含 #）") },singleLine=true,isError=parsed==null)
+            TextButton(enabled=parsed!=null,onClick={ parsed?.let { rgb -> onChange { it.copy(similarColor=null,
+                colorCondition=com.eagleviewer.app.data.ColorCondition(custom=com.eagleviewer.app.data.PaletteRGB.fromInt(rgb),tolerance=it.effectiveColor?.tolerance?:25.0)) } } }) { Text("使用自选色") }
+            if(condition!=null && (condition.custom!=null || condition.common?.hue!=null)) {
+                Text("容差：${condition.tolerance.toInt()}（${if(condition.custom!=null) "ΔE76" else "色相角度"}）")
+                androidx.compose.material3.Slider(value=condition.tolerance.toFloat(),onValueChange={ value ->
+                    onChange { f -> f.copy(similarColor=null,colorCondition=f.effectiveColor?.copy(tolerance=value.toDouble())) }
+                },valueRange=10f..60f,steps=49)
+            }
+            Text("缺失或无效色板暂不参与；本版本不从图片补算。",style=MaterialTheme.typography.bodySmall)
         }
     }
 }

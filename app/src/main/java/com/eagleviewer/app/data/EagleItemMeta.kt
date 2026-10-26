@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
  * 单张图片 `.info/metadata.json` 的模型。
@@ -51,7 +52,12 @@ data class EagleItemMeta(
     companion object {
         val json = Json { ignoreUnknownKeys = true }
 
-        fun parse(text: String): EagleItemMeta = json.decodeFromString(text)
+        fun parse(text: String): EagleItemMeta {
+            val payload=json.parseToJsonElement(text) as JsonObject
+            val palette=payload["palettes"]?.toString()?.let(RawPalette::parse) ?: PaletteState(unknown="missing")
+            return json.decodeFromJsonElement<EagleItemMeta>(JsonObject(payload - "palettes"))
+                .copy(palettes=RawPalette.display(palette))
+        }
     }
 }
 

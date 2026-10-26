@@ -67,6 +67,10 @@ interface ItemDao {
     @RawQuery(observedEntities = [ItemEntity::class, ItemTagCrossRef::class])
     fun pagedItems(query: SupportSQLiteQuery): PagingSource<Int, ItemWithTags>
 
+    @Transaction
+    @RawQuery(observedEntities = [ItemEntity::class, ItemTagCrossRef::class])
+    fun observeItems(query: SupportSQLiteQuery): Flow<List<ItemWithTags>>
+
     @RawQuery(observedEntities = [ItemEntity::class, ItemTagCrossRef::class])
     fun filteredTagCounts(query: SupportSQLiteQuery): Flow<List<TagCount>>
 
@@ -80,7 +84,7 @@ interface ItemDao {
     @Query("SELECT COUNT(*) FROM items")
     suspend fun itemCountNow(): Int
 
-    /** 颜色相似度检索：取全部条目的色板数据在内存中排序。 */
-    @Query("SELECT id, palettesJson FROM items")
-    suspend fun allPalettes(): List<IdPalettes>
+    /** Local legacy palette repair only; no full-library ID bind list. */
+    @Query("SELECT id, palettesJson FROM items WHERE palettesJson != ''")
+    suspend fun paletteRepairCandidates(): List<IdPalettes>
 }

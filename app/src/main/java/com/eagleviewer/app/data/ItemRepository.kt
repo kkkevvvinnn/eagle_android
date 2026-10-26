@@ -8,9 +8,7 @@ import androidx.sqlite.db.SupportSQLiteQuery
 import com.eagleviewer.app.data.db.AppDatabase
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -31,22 +29,24 @@ data class Filter(
     val sort: Sort = Sort.BTIME_DESC,
     val nameQuery: String = "",
     val untaggedOnly: Boolean = false,
-    /** 相似配色检索的目标颜色（RGB int），非空时按色板距离排序，忽略其他条件。 */
+    /** Legacy decode only. New saves use colorCondition semantics v1. */
     val similarColor: Int? = null,
+    val colorCondition: ColorCondition? = null,
 ) {
     /** 是否存在真实筛选条件（排序方式不算筛选）。 */
     val isActive: Boolean
         get() = tags.isNotEmpty() || minStar > 0 || nameQuery.isNotBlank() ||
-            untaggedOnly || similarColor != null
+            untaggedOnly || effectiveColor != null
+    val effectiveColor: ColorCondition? get() = colorCondition ?: similarColor?.let { ColorCondition(custom=PaletteRGB.fromInt(it)) }
+    fun clearColor() = copy(colorCondition=null, similarColor=null)
 }
 
-/** 基于 Room 索引的查询仓库：动态组装筛选 SQL（标签与/或、评分、排序、相似配色）。 */
+/** 基于 Room 索引的查询仓库：动态组装基础筛选 SQL；主色通过完整有序元数据投影取交集。 */
 class ItemRepository(private val db: AppDatabase) {
 
-    /** Prepared once per filter, shared by paging and counts (including the actual color top 150). */
-    suspend fun prepareQuery(filter: Filter): SupportSQLiteQuery =
-        if (filter.similarColor != null) buildSimilarQuery(rankBySimilarColor(filter.similarColor))
-        else buildQuery(filter)
+    fun prepareQuery(filter: Filter): SupportSQLiteQuery = buildQuery(filter)
+
+    fun observeItems(query: SupportSQLiteQuery): Flow<List<ItemWithTags>> = db.itemDao().observeItems(query)
 
     fun pagedItems(query: SupportSQLiteQuery): Flow<PagingData<ItemWithTags>> =
         Pager(
@@ -60,60 +60,7 @@ class ItemRepository(private val db: AppDatabase) {
 
     fun itemCount(): Flow<Int> = db.itemDao().itemCount()
 
-    /** 按色板与目标颜色的距离对全库排序，取前 [SIMILAR_LIMIT] 个 id。 */
-    private suspend fun rankBySimilarColor(color: Int): List<String> {
-        val all = db.itemDao().allPalettes()
-        // 全库 JSON 解码 + 排序不能跑在主线程（收集方是 viewModelScope）
-        return withContext(Dispatchers.Default) {
-            all.map { it.id to paletteDistance(it.palettesJson, color) }
-                .filter { it.second < Double.MAX_VALUE }
-                .sortedBy { it.second }
-                .take(SIMILAR_LIMIT)
-                .map { it.first }
-        }
-    }
-
     companion object {
-        private const val SIMILAR_LIMIT = 150
-
-        /**
-         * 条目色板与目标颜色的距离：各色板颜色与目标的 RGB 欧氏距离的最小值。
-         * 无色板时返回 [Double.MAX_VALUE]（不参与相似配色结果）。
-         */
-        fun paletteDistance(palettesJson: String, color: Int): Double {
-            if (palettesJson.isEmpty()) return Double.MAX_VALUE
-            val palettes = runCatching {
-                EagleItemMeta.json.decodeFromString<List<EagleItemMeta.Palette>>(palettesJson)
-            }.getOrDefault(emptyList())
-            if (palettes.isEmpty()) return Double.MAX_VALUE
-            val tr = (color shr 16) and 0xFF
-            val tg = (color shr 8) and 0xFF
-            val tb = color and 0xFF
-            // minOfOrNull：色板全部残缺（color 不足 3 元素）时不参与检索
-            return palettes
-                .filter { it.color.size >= 3 }
-                .minOfOrNull { p ->
-                    val dr = p.color[0] - tr
-                    val dg = p.color[1] - tg
-                    val db = p.color[2] - tb
-                    kotlin.math.sqrt((dr * dr + dg * dg + db * db).toDouble())
-                } ?: Double.MAX_VALUE
-        }
-
-        /** 相似配色查询：按距离排序后的 id 列表用 CASE 保序。 */
-        fun buildSimilarQuery(rankedIds: List<String>): SupportSQLiteQuery {
-            if (rankedIds.isEmpty()) {
-                return SimpleSQLiteQuery("SELECT * FROM items WHERE 0")
-            }
-            val placeholders = rankedIds.joinToString(",") { "?" }
-            val caseOrder = rankedIds.indices.joinToString(" ") { "WHEN ? THEN $it" }
-            return SimpleSQLiteQuery(
-                "SELECT * FROM items WHERE id IN ($placeholders) " +
-                    "ORDER BY CASE id $caseOrder END",
-                (rankedIds + rankedIds).toTypedArray(),
-            )
-        }
-
         /** Counts the complete prepared result, preserving every predicate and binding. */
         fun buildTagCountQuery(result: SupportSQLiteQuery): SupportSQLiteQuery = object : SupportSQLiteQuery {
             override val sql: String = "SELECT tags.tag AS tag, COUNT(DISTINCT tags.itemId) AS cnt " +

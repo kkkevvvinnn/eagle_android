@@ -54,10 +54,7 @@ data class ItemWithTags(
 
     /** 解析 palettesJson，失败时返回空列表。 */
     val palettes: List<EagleItemMeta.Palette> by lazy {
-        if (item.palettesJson.isEmpty()) emptyList()
-        else runCatching {
-            EagleItemMeta.json.decodeFromString<List<EagleItemMeta.Palette>>(item.palettesJson)
-        }.getOrDefault(emptyList())
+        com.eagleviewer.app.data.RawPalette.display(com.eagleviewer.app.data.RawPalette.parse(item.palettesJson))
     }
 }
 
@@ -77,8 +74,5 @@ data class TagCount(
     val cnt: Int,
 )
 
-/** 颜色相似度检索用的轻量投影。 */
-data class IdPalettes(
-    val id: String,
-    val palettesJson: String,
-)
+/** Local legacy cache entries can be reread without fetching image bytes. */
+data class IdPalettes(val id:String,val palettesJson:String)
