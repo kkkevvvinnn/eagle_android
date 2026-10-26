@@ -6,6 +6,9 @@ import android.provider.DocumentsContract
 import com.eagleviewer.app.data.db.AppDatabase
 import com.eagleviewer.app.data.db.ItemEntity
 import com.eagleviewer.app.data.db.ItemTagCrossRef
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -59,11 +62,15 @@ class EagleScanner(
 
         val mtimeText = try {
             readText(docUri("mtime.json"))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw ScannerException("无法读取 mtime.json，请确认选择的是 Eagle 导出的 .library 根目录")
         }
         val mtime = try {
             parseMtimeJson(mtimeText)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw ScannerException("mtime.json 解析失败：文件可能正在同步写入，请稍后重试")
         }
@@ -73,6 +80,11 @@ class EagleScanner(
             throw ScannerException("mtime.json 内容为空或格式异常，请等待同步完成后重试")
         }
 
+        // Full SAF URI (authority included), independently of the existing indexedRoot rule.
+        // Invalidate optional data before any Room mutation; a cancelled switch cannot leak it.
+        val optionalTicket = settings.beginTagSnapshot(rootUriString)
+        val optionalTags = readOptionalTags(::docUri)
+        currentCoroutineContext().ensureActive()
         val dao = db.itemDao()
         if (settings.indexedRoot.first() != treeDocId) {
             // mtime.json 校验通过后才清空（读 mtime 失败时保持旧索引不动）。
@@ -109,12 +121,16 @@ class EagleScanner(
         toScan.forEachIndexed { index, id ->
             val metaText = try {
                 readText(docUri("images/$id.info/metadata.json"))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 null
             }
             val meta = metaText?.let {
                 try {
                     EagleItemMeta.parse(it)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     null
                 }
@@ -178,7 +194,8 @@ class EagleScanner(
             dao.deleteItemsChunked(toRemove)
         }
 
-        ScanResult(
+        currentCoroutineContext().ensureActive()
+        val result = ScanResult(
             scanned = scanned,
             deleted = diff.toDelete.size,
             // 总数直接取扫描后的索引实数，与网格/设置页口径严格一致
@@ -187,12 +204,30 @@ class EagleScanner(
             total = dao.itemCountNow(),
             missing = missing,
         )
+        currentCoroutineContext().ensureActive()
+        settings.publishTagSnapshot(optionalTicket, optionalTags)
+        result
+    }
+
+    /** Read independently on every scan, including an empty item diff. No Eagle writes. */
+    private suspend fun readOptionalTags(docUri: (String) -> Uri): OptionalTags {
+        val coroutineContext = currentCoroutineContext()
+        val result = TagCatalogParser.load({ path ->
+            coroutineContext.ensureActive()
+            val input = context.contentResolver.openInputStream(docUri(path))
+                ?: throw FileNotFoundException(path)
+            StrictTagJson.read(input)
+        }, System.currentTimeMillis())
+        coroutineContext.ensureActive()
+        return result
     }
 
     /** 探测文档是否存在且可读（不读取内容）。 */
     private fun exists(uri: Uri): Boolean = try {
         context.contentResolver.openFileDescriptor(uri, "r")?.close()
         true
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         false
     }

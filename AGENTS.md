@@ -22,7 +22,7 @@
 ```bash
 ./gradlew :app:assembleDebug      # debug APK
 ./gradlew :app:assembleRelease    # release APK（本地无签名环境变量时回退 debug 签名）
-./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，29 项，必须全绿才能提交）
+./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，48 项，必须全绿才能提交）
 ./gradlew :app:installDebug       # 安装到已连接 adb 设备
 ```
 
@@ -75,7 +75,8 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `data/ScanDiffer.kt` | diff 纯逻辑（JVM 可测） |
 | `data/ItemRepository.kt` | `Filter`/`Sort` 模型、动态筛选 SQL、相似配色检索 |
 | data/FilterPersistence.kt | 筛选状态编解码：新默认 ANY，兼容旧省略模式的 ALL；新保存显式记录模式 |
-| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、上次扫描时间、索引根目录） |
+| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、扫描时间、索引根目录及绑定完整 URI 的标签快照） |
+| `data/TagCatalog.kt` | 辅助文件有界严格解析、Mac30天新增频率、UTF8字面排序、分组目录与标签缓存 ticket |
 | `data/db/Entities.kt` | `ItemEntity`、`ItemTagCrossRef`（CASCADE）、`ItemWithTags`、投影类 |
 | `data/db/ItemDao.kt` | 全部 DAO；**含 SQL_BATCH 分批封装** |
 | `data/db/AppDatabase.kt` | Room 单例，`fallbackToDestructiveMigration` |
@@ -94,7 +95,8 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 xxx.library/
 ├── mtime.json    # { "<图片ID>": lastModified(ms), "all": 总数 }  ← 增量扫描的唯一 diff 依据
 ├── tags.json     # 标签使用历史（historyTags/starredTags），不是标签字典，本应用不用
-├── metadata.json # 全局 folders/tagsGroups，本应用不用
+├── metadata.json # 只读 tagsGroups 展示分组；folders仍不作为本应用分类入口
+├── kevin-tag-history.json # 可选 Mac 新增标签关联历史，本应用只读近期排序
 └── images/<ID>.info/
     ├── metadata.json        # 单条元数据（核心）
     ├── <name>.<ext>         # 原图（ext 可能是 jpg/png/gif/webp...）
@@ -165,6 +167,7 @@ xxx.library/
 4. **相似配色**：`pagedItems` 的 `flow {}` 收集方在主线程——全库色板 JSON 解码 + 排序
    **必须** `withContext(Dispatchers.Default)`（万级库主线程秒级卡顿/ANR）。
    结果用 `CASE id WHEN ? THEN n` 保序，上限 `SIMILAR_LIMIT = 150`；
+   该旧路径只随筛选条件变化重新排名，Room失效会重查固定ID但不补齐候选；主色叠加对齐留待后续M5c。
    `paletteDistance` 用 `minOfOrNull ?: MAX_VALUE`（残缺色板不能抛异常）。
 
 5. **标签默认与排序**：新筛选默认 ANY。多标签 ANY 先按命中的不同已选标签数降序，再按所选 Sort；所有基础排序末尾加 id ASC 保证并列稳定。ALL 集合语义保持。ANY 聚合 JOIN 只绑定一份标签，评分/搜索仍参数绑定。标签查询整体受老 SQLite 999 总变量限制（减评分/搜索各0或1）；当前 Room2.7.2 分页不额外绑定 LIMIT/OFFSET。本轮不实现海量已选标签临时表。
@@ -196,10 +199,12 @@ xxx.library/
 1. `rememberModalBottomSheetState(skipPartiallyExpanded = true)`：部分展开锚点会在内容高度
    变化时重新停靠滑动（视觉=滚动重置回顶部）。
 2. 头部行固定 `heightIn(min = 48.dp)`：「清除」「与/或」按钮出现/消失不改变 sheet 高度。
-3. 标签区自持有 `rememberScrollState()` + `heightIn(max = 400.dp)`：点选标签重组后保持滚动位置。
+3. 分组标签区自持有 `rememberScrollState()` + `heightIn(max = 400.dp)`：点选标签重组后保持滚动位置。
 4. 互斥矩阵：选中任一标签 → 清 `untaggedOnly` 和 `similarColor`；选「未标记」→ 清 `tags` 和
    `similarColor`；进相似配色 → 清 `tags` 和 `untaggedOnly`（MainActivity 的 onFindSimilar）。
 5. 与/或切换仅在选中 ≥2 个标签时显示。
+6. 显示分组与未分组，组仅整理展示；保留源分组冲突并提示，不擅自挑选归属。始终可搜索；零结果时仍可选择、清除条件，目录外已选标签可单独移除。双计数为完整当前结果中的标签覆盖数／全部已索引非回收站覆盖数，不以当前页面已加载数代替。
+7. 标签组内按近30天 Mac 新增关联数降序，再按全库索引覆盖数降序、unsigned UTF8字节升序；不trim、normalize或用Kotlin UTF16默认顺序代替。history-only不生成目录标签，合法group-only可显示0。
 
 ### 5.5 大图（DetailScreen + ZoomableImage）
 
@@ -226,6 +231,14 @@ xxx.library/
 
 5. **筛选持久化须用 FilterPersistence**：旧非空 JSON 缺 andMode 按旧默认 ALL 恢复，显式 true/false 原样保留；无保存/新筛选默认 ANY，新保存始终写出 andMode。不得直接借新 Filter 默认值解释旧省略字段。原 touched 恢复门禁保持。
 
+### 5.7 分组、频率及双计数只读投影
+
+1. 每次合法 `mtime.json` 校验后的扫描都读取根 `metadata.json` 与可选 `kevin-tag-history.json`，即使 item diff 为空。各文件 streaming 最多8MiB、UTF8严格解码，重复JSON键及孤立代理拒绝；分组只验证过 Eagle4.0.0。两份文件分别失败降级，不清空图片索引、不伪造时间、不创建或重写任何图库文件。
+2. history仅接受exact schema1/source Mac/actions，事务及关联上限与Mac合同一致。窗口含左右边界，未来时间不计；按每条新增图片关联累加，旧图片时间不补算历史。只读手机不增加Mac次数。该文件无libraryID，无法识别误拷的合法异库历史或合法但跨文件同步不一致。
+3. DataStore单 `TagCatalogSnapshot` 保存完整root URI（含authority）、generation和已成功payload。合法mtime后、Room变动前begin；换root即清旧payload，同root保留上次成功快照。核心成功后匹配root/generation ticket才能publish；A→B→A迟到结果不得发布。仍由原唯一scanMutex串行扫描；取消须传播。读取辅助文件失败只发布该部分fallback，核心失败不发布候选payload。
+4. `GridViewModel.preparedQuery`将同一结果SQL共享给Paging与当前标签计数，后者包裹完整结果并转发原绑定。ANY/ALL、评分、搜索、未标签均包含；similarColor的旧top150也共用同一准备结果，不另算一套集合。DAO观察items/item_tag变化，Paging占位符/共享VM/touched恢复门禁不变。
+5. Android目录仅来自本机可浏览的非回收站Room索引及合法分组。未同步原图、trash-only标签不为补目录而额外全扫；与Mac完整库数字在部分同步时可能不同。分组/近期窗口按显式扫描读取时更新，无idle轮询。设备SAF、DataStore进程重启及Compose交互仍需后续真机验证，构建与JVM测试不替代设备证明。
+
 ## 6. 测试
 
 纯 JVM 单测在 `app/src/test/java/com/eagleviewer/app/data/`：
@@ -234,6 +247,8 @@ xxx.library/
 - `FilterQueryTest`：动态 SQL、一次标签绑定、命中数排序及稳定并列、LIKE 转义
 - FilterPersistenceTest：旧省略模式兼容、新默认 ANY、显式模式与全字段往返
 - `ColorSearchTest`：色板距离 + CASE 保序 SQL + 残缺色板
+- `TagCatalogTest` / `TagCatalogGoldenTest`：严格辅助schema、边界、独立fallback/取消、Mac生产Python golden、字面排序、持久快照ticket及跨root隔离
+- `TagCountQueryTest`：完整结果双计数、绑定转发与类似配色同集合查询
 
 约定：改 `data/` 层的纯逻辑必须配/更新测试；测试样本用真实 Eagle 导出 JSON 文本内联。
 UI/手势无自动化测试，靠真机验证（构建通过 + 用户在手机上确认）。

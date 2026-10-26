@@ -67,6 +67,9 @@ interface ItemDao {
     @RawQuery(observedEntities = [ItemEntity::class, ItemTagCrossRef::class])
     fun pagedItems(query: SupportSQLiteQuery): PagingSource<Int, ItemWithTags>
 
+    @RawQuery(observedEntities = [ItemEntity::class, ItemTagCrossRef::class])
+    fun filteredTagCounts(query: SupportSQLiteQuery): Flow<List<TagCount>>
+
     @Query("SELECT tag, COUNT(*) AS cnt FROM item_tag GROUP BY tag ORDER BY cnt DESC, tag ASC")
     fun tagCounts(): Flow<List<TagCount>>
 

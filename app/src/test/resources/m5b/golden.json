@@ -1,0 +1,446 @@
+{
+  "nowMs": 1770000000000,
+  "windowMs": 2592000000,
+  "baseline": {
+    "groups": {
+      "schemaVersion": 1,
+      "status": "complete",
+      "revision": "21311f67858f69f86916bf93e7a91a750df156df07adaa3afd2dd0690f44e902",
+      "sourceVersion": "4.0.0",
+      "groups": [
+        {
+          "index": 0,
+          "id": "g1",
+          "name": "主题",
+          "tags": [
+            "秋天",
+            "人像",
+            "组专用"
+          ],
+          "raw": {
+            "id": "g1",
+            "name": "主题",
+            "tags": [
+              "秋天",
+              "人像",
+              "组专用"
+            ],
+            "color": "#ff0000",
+            "description": "example",
+            "custom": {
+              "keep": true
+            }
+          }
+        },
+        {
+          "index": 1,
+          "id": "g2",
+          "name": "空组",
+          "tags": [],
+          "raw": {
+            "id": "g2",
+            "name": "空组",
+            "tags": []
+          }
+        }
+      ],
+      "ungroupedTags": [
+        "é",
+        "é",
+        "仅回收站",
+        "夜景"
+      ],
+      "groupOnlyTags": [
+        "组专用"
+      ],
+      "issues": [
+        {
+          "code": "unknown_group_fields",
+          "path": "metadata.json/tagsGroups/0",
+          "detail": "unrecognized fields are preserved in raw",
+          "fields": [
+            "custom"
+          ]
+        }
+      ],
+      "hasUnknownFields": true
+    },
+    "usage": {
+      "status": "ready",
+      "recentCounts": [
+        {
+          "tag": "人像",
+          "count": 1
+        },
+        {
+          "tag": "仅历史",
+          "count": 1
+        },
+        {
+          "tag": "秋天",
+          "count": 2
+        }
+      ],
+      "issues": []
+    },
+    "readOnlyHashesUnchanged": true
+  },
+  "derivedMacDisplayExample": {
+    "coverageIncludingTrash": {
+      "é": 1,
+      "秋天": 2,
+      "人像": 3,
+      "é": 1,
+      "仅回收站": 1,
+      "夜景": 1,
+      "组专用": 0
+    },
+    "activeScopeBeforeTagFilter": {
+      "é": 1,
+      "秋天": 2,
+      "人像": 2,
+      "é": 1,
+      "夜景": 1
+    },
+    "globalRank": [
+      "秋天",
+      "人像",
+      "é",
+      "é",
+      "仅回收站",
+      "夜景",
+      "组专用"
+    ],
+    "selectedTags": [
+      "秋天"
+    ],
+    "resultIDs": [
+      "A000000000001",
+      "B000000000002"
+    ],
+    "MacNightCount": "1 / 1",
+    "planResultNightCount": "0 / 1",
+    "MacPortraitCount": "2 / 3",
+    "planActivePortraitCount": "2 / 2",
+    "note": "Count/rank derived mechanically from cited Swift algorithm; production Swift not executed here."
+  },
+  "groupCases": {
+    "missing_tagsGroups": {
+      "schemaVersion": 1,
+      "status": "complete",
+      "revision": "7037fa3c636e58cb82e258e4fee16c3815467e93b4f0fcad9801c1fecc07c76f",
+      "sourceVersion": "4.0.0",
+      "groups": [],
+      "ungroupedTags": [
+        "é",
+        "é",
+        "人像",
+        "仅回收站",
+        "夜景",
+        "秋天"
+      ],
+      "groupOnlyTags": [],
+      "issues": [],
+      "hasUnknownFields": false
+    },
+    "unsupportedVersion": {
+      "schemaVersion": 1,
+      "status": "unsupportedVersion",
+      "revision": "41865c104f68da5b3dc74acffabbe74022739296bc8e1c7a328cc303b69ae863",
+      "sourceVersion": "4.1.0",
+      "groups": [],
+      "ungroupedTags": [],
+      "groupOnlyTags": [],
+      "issues": [
+        {
+          "code": "unsupported_version",
+          "path": "metadata.json/applicationVersion",
+          "detail": "tag group projection is verified only for applicationVersion 4.0.0"
+        }
+      ],
+      "hasUnknownFields": false
+    },
+    "null_tagsGroups": {
+      "schemaVersion": 1,
+      "status": "blocked",
+      "revision": "779bb6319548bd7d8023b1c021d3475987f897b135a60d339db237fea2e08030",
+      "sourceVersion": "4.0.0",
+      "groups": [],
+      "ungroupedTags": [],
+      "groupOnlyTags": [],
+      "issues": [
+        {
+          "code": "invalid_schema",
+          "path": "metadata.json/tagsGroups",
+          "detail": "expected an array"
+        }
+      ],
+      "hasUnknownFields": false
+    },
+    "bad_group_member": {
+      "schemaVersion": 1,
+      "status": "blocked",
+      "revision": "b39f58af1cd3a7882b0d382655175e3b47a23024aa6ce6fb3aa814fa5c0bb4c6",
+      "sourceVersion": "4.0.0",
+      "groups": [],
+      "ungroupedTags": [],
+      "groupOnlyTags": [],
+      "issues": [
+        {
+          "code": "invalid_schema",
+          "path": "metadata.json/tagsGroups/0/tags/0",
+          "detail": "expected a string"
+        }
+      ],
+      "hasUnknownFields": false
+    },
+    "membershipConflict": {
+      "schemaVersion": 1,
+      "status": "membershipConflict",
+      "revision": "79c9f9404125047383cb447deb1762510301b5d7e9b58da2716b7ac7b6a77e92",
+      "sourceVersion": "4.0.0",
+      "groups": [
+        {
+          "index": 0,
+          "id": "g",
+          "name": "one",
+          "tags": [
+            "秋天",
+            "秋天"
+          ],
+          "raw": {
+            "id": "g",
+            "name": "one",
+            "tags": [
+              "秋天",
+              "秋天"
+            ]
+          }
+        },
+        {
+          "index": 1,
+          "id": "g",
+          "name": "two",
+          "tags": [
+            "秋天"
+          ],
+          "raw": {
+            "id": "g",
+            "name": "two",
+            "tags": [
+              "秋天"
+            ]
+          }
+        }
+      ],
+      "ungroupedTags": [
+        "é",
+        "é",
+        "人像",
+        "仅回收站",
+        "夜景"
+      ],
+      "groupOnlyTags": [],
+      "issues": [
+        {
+          "code": "duplicate_group_member",
+          "path": "metadata.json/tagsGroups/0/tags/1",
+          "detail": "tag is repeated within this group",
+          "tag": "秋天",
+          "groupIndex": 0
+        },
+        {
+          "code": "duplicate_group_id",
+          "path": "metadata.json/tagsGroups/1/id",
+          "detail": "group ID occurs more than once",
+          "firstGroupIndex": 0
+        },
+        {
+          "code": "cross_group_membership",
+          "path": "metadata.json/tagsGroups/1/tags/0",
+          "detail": "tag occurs in more than one group",
+          "tag": "秋天",
+          "firstGroupIndex": 0,
+          "groupIndex": 1
+        }
+      ],
+      "hasUnknownFields": false
+    }
+  },
+  "historyCases": {
+    "Android_source": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "unsupported Mac tag history schema/collision"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "extra_root_field": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "unsupported Mac tag history schema/collision"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "schema_boolean": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "unsupported Mac tag history schema/collision"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "timestamp_boolean": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "invalid Mac tag history action"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "duplicate_pair": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "duplicate Mac tag history association"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "duplicate_transaction": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "invalid Mac tag history action"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    },
+    "missing": {
+      "status": "ready",
+      "recentCounts": [],
+      "issues": []
+    },
+    "truncated": {
+      "status": "blocked",
+      "issues": [
+        {
+          "code": "guarded_edit_blocked",
+          "detail": "complete inventory blocked: [{'code': 'invalid_json', 'path': 'kevin-tag-history.json', 'detail': 'Expecting value: line 1 column 18 (char 17)'}]"
+        }
+      ],
+      "revision": null,
+      "recoveryRequired": false,
+      "acknowledgementRequired": false,
+      "recentCounts": []
+    }
+  },
+  "groupsWithTruncatedHistory": {
+    "schemaVersion": 1,
+    "status": "blocked",
+    "revision": null,
+    "sourceVersion": null,
+    "groups": [],
+    "ungroupedTags": [],
+    "groupOnlyTags": [],
+    "issues": [
+      {
+        "code": "invalid_json",
+        "path": "kevin-tag-history.json",
+        "detail": "Expecting value: line 1 column 18 (char 17)"
+      }
+    ],
+    "hasUnknownFields": false
+  },
+  "mergeExample": {
+    "before": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "来源"
+            },
+            {
+              "id": "A000000000001",
+              "tag": "目标"
+            }
+          ]
+        },
+        {
+          "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "来源"
+            }
+          ]
+        }
+      ]
+    },
+    "after": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "目标"
+            }
+          ]
+        },
+        {
+          "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "目标"
+            }
+          ]
+        }
+      ]
+    },
+    "migrated": 2,
+    "collapsedWithinAction": 1,
+    "targetRecentCount": 2
+  }
+}

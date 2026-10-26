@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
@@ -22,6 +24,35 @@ class SettingsRepository(private val context: Context) {
     private val keyColumnCount = intPreferencesKey("column_count")
     private val keyThemeMode = intPreferencesKey("theme_mode")
     private val keyIndexedRoot = stringPreferencesKey("indexed_root")
+
+    private val keyTagSnapshot = stringPreferencesKey("tag_catalog_snapshot_v1")
+
+    val tagSnapshot: Flow<TagCatalogSnapshot> = context.dataStore.data.map {
+        decodeTagSnapshot(it[keyTagSnapshot] ?: "")
+    }.flowOn(Dispatchers.Default)
+
+    suspend fun beginTagSnapshot(rootUri: String): TagCatalogSnapshot {
+        var ticket = TagCatalogSnapshot()
+        context.dataStore.edit { prefs ->
+            ticket = decodeTagSnapshot(prefs[keyTagSnapshot] ?: "").begin(rootUri)
+            prefs[keyTagSnapshot] = Json.encodeToString(ticket)
+        }
+        return ticket
+    }
+
+    suspend fun publishTagSnapshot(ticket: TagCatalogSnapshot, payload: OptionalTags) {
+        context.dataStore.edit { prefs ->
+            val current = decodeTagSnapshot(prefs[keyTagSnapshot] ?: "")
+            val encoded = Json.encodeToString(current.publish(ticket, payload))
+            // Internal cache is bounded as well as the two source documents.
+            prefs[keyTagSnapshot] = if (encoded.toByteArray(Charsets.UTF_8).size <= 16 * 1024 * 1024) encoded
+                else Json.encodeToString(current.publish(ticket, OptionalTags()))
+        }
+    }
+
+    private fun decodeTagSnapshot(value: String): TagCatalogSnapshot =
+        if (value.isEmpty()) TagCatalogSnapshot()
+        else runCatching { Json.decodeFromString<TagCatalogSnapshot>(value) }.getOrDefault(TagCatalogSnapshot())
 
     val libraryUri: Flow<String> = context.dataStore.data.map { it[keyLibraryUri] ?: "" }
 

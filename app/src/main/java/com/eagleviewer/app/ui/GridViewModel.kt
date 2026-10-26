@@ -10,8 +10,10 @@ import com.eagleviewer.app.AppContainer
 import com.eagleviewer.app.data.EagleScanner
 import com.eagleviewer.app.data.Filter
 import com.eagleviewer.app.data.FilterPersistence
+import com.eagleviewer.app.data.TagCatalog
+import com.eagleviewer.app.data.TagCatalogParser
 import com.eagleviewer.app.data.db.ItemWithTags
-import com.eagleviewer.app.data.db.TagCount
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -19,6 +21,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -46,15 +52,26 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     val selection = MutableStateFlow<Set<String>>(emptySet())
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-    val pagingData: Flow<PagingData<ItemWithTags>> = filter
-        // 输入搜索词时防抖 300ms，避免每击键一次都重启 Pager；
-        // 搜索词为空时的其他筛选变化立即生效
+    private val preparedQuery = filter
         .debounce { if (it.nameQuery.isNotEmpty()) 300L else 0L }
+        .mapLatest { container.items.prepareQuery(it) }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pagingData: Flow<PagingData<ItemWithTags>> = preparedQuery
         .flatMapLatest { container.items.pagedItems(it) }
         .cachedIn(viewModelScope)
 
-    val tagCounts: StateFlow<List<TagCount>> = container.items.tagCounts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val currentTagCounts = preparedQuery.flatMapLatest { container.items.currentTagCounts(it) }
+
+    val tagCatalog: StateFlow<TagCatalog> = combine(
+        container.settings.tagSnapshot, container.settings.libraryUri,
+        container.items.tagCounts(), currentTagCounts,
+    ) { snapshot, root, global, current ->
+        TagCatalogParser.catalog(snapshot.forRoot(root), global.associate { it.tag to it.cnt },
+            current.associate { it.tag to it.cnt })
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TagCatalog())
 
     val itemCount: StateFlow<Int> = container.items.itemCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)

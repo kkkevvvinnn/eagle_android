@@ -1,0 +1,355 @@
+{
+  "groupRootReplacements": {
+    "missing_tagsGroups": {
+      "applicationVersion": "4.0.0",
+      "folders": []
+    },
+    "unsupportedVersion": {
+      "applicationVersion": "4.1.0",
+      "folders": [],
+      "tagsGroups": [
+        {
+          "id": "g1",
+          "name": "主题",
+          "tags": [
+            "秋天",
+            "人像",
+            "组专用"
+          ],
+          "color": "#ff0000",
+          "description": "example",
+          "custom": {
+            "keep": true
+          }
+        },
+        {
+          "id": "g2",
+          "name": "空组",
+          "tags": []
+        }
+      ]
+    },
+    "null_tagsGroups": {
+      "applicationVersion": "4.0.0",
+      "folders": [],
+      "tagsGroups": null
+    },
+    "bad_group_member": {
+      "applicationVersion": "4.0.0",
+      "folders": [],
+      "tagsGroups": [
+        {
+          "id": "g1",
+          "name": "bad",
+          "tags": [
+            1
+          ]
+        }
+      ]
+    },
+    "membershipConflict": {
+      "applicationVersion": "4.0.0",
+      "folders": [],
+      "tagsGroups": [
+        {
+          "id": "g",
+          "name": "one",
+          "tags": [
+            "秋天",
+            "秋天"
+          ]
+        },
+        {
+          "id": "g",
+          "name": "two",
+          "tags": [
+            "秋天"
+          ]
+        }
+      ]
+    }
+  },
+  "invalidHistoryReplacements": {
+    "Android_source": {
+      "schemaVersion": 1,
+      "source": "Android",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1767408000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "B000000000002",
+              "tag": "秋天"
+            }
+          ]
+        },
+        {
+          "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "人像"
+            }
+          ]
+        },
+        {
+          "transactionID": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timestampMs": 1767407999999,
+          "added": [
+            {
+              "id": "C000000000003",
+              "tag": "仅回收站"
+            }
+          ]
+        },
+        {
+          "transactionID": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "timestampMs": 1770000000001,
+          "added": [
+            {
+              "id": "D000000000004",
+              "tag": "夜景"
+            }
+          ]
+        },
+        {
+          "transactionID": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "E000000000005",
+              "tag": "仅历史"
+            }
+          ]
+        }
+      ]
+    },
+    "extra_root_field": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1767408000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "B000000000002",
+              "tag": "秋天"
+            }
+          ]
+        },
+        {
+          "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "人像"
+            }
+          ]
+        },
+        {
+          "transactionID": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timestampMs": 1767407999999,
+          "added": [
+            {
+              "id": "C000000000003",
+              "tag": "仅回收站"
+            }
+          ]
+        },
+        {
+          "transactionID": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "timestampMs": 1770000000001,
+          "added": [
+            {
+              "id": "D000000000004",
+              "tag": "夜景"
+            }
+          ]
+        },
+        {
+          "transactionID": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "E000000000005",
+              "tag": "仅历史"
+            }
+          ]
+        }
+      ],
+      "extra": true
+    },
+    "schema_boolean": {
+      "schemaVersion": true,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1767408000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "B000000000002",
+              "tag": "秋天"
+            }
+          ]
+        },
+        {
+          "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "人像"
+            }
+          ]
+        },
+        {
+          "transactionID": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "timestampMs": 1767407999999,
+          "added": [
+            {
+              "id": "C000000000003",
+              "tag": "仅回收站"
+            }
+          ]
+        },
+        {
+          "transactionID": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "timestampMs": 1770000000001,
+          "added": [
+            {
+              "id": "D000000000004",
+              "tag": "夜景"
+            }
+          ]
+        },
+        {
+          "transactionID": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "E000000000005",
+              "tag": "仅历史"
+            }
+          ]
+        }
+      ]
+    },
+    "timestamp_boolean": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": true,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            }
+          ]
+        }
+      ]
+    },
+    "duplicate_pair": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1770000000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            }
+          ]
+        }
+      ]
+    },
+    "duplicate_transaction": {
+      "schemaVersion": 1,
+      "source": "Mac",
+      "actions": [
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1767408000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "B000000000002",
+              "tag": "秋天"
+            }
+          ]
+        },
+        {
+          "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "timestampMs": 1767408000000,
+          "added": [
+            {
+              "id": "A000000000001",
+              "tag": "秋天"
+            },
+            {
+              "id": "B000000000002",
+              "tag": "秋天"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "mergeInput": {
+    "schemaVersion": 1,
+    "source": "Mac",
+    "actions": [
+      {
+        "transactionID": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "timestampMs": 1770000000000,
+        "added": [
+          {
+            "id": "A000000000001",
+            "tag": "来源"
+          },
+          {
+            "id": "A000000000001",
+            "tag": "目标"
+          }
+        ]
+      },
+      {
+        "transactionID": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "timestampMs": 1770000000000,
+        "added": [
+          {
+            "id": "A000000000001",
+            "tag": "来源"
+          }
+        ]
+      }
+    ]
+  }
+}

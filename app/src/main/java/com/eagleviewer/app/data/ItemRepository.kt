@@ -10,8 +10,6 @@ import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.db.TagCount
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
@@ -45,25 +43,18 @@ data class Filter(
 /** 基于 Room 索引的查询仓库：动态组装筛选 SQL（标签与/或、评分、排序、相似配色）。 */
 class ItemRepository(private val db: AppDatabase) {
 
-    fun pagedItems(filter: Filter): Flow<PagingData<ItemWithTags>> = flow {
-        val query = if (filter.similarColor != null) {
-            buildSimilarQuery(rankBySimilarColor(filter.similarColor))
-        } else {
-            buildQuery(filter)
-        }
-        emitAll(
-            Pager(
-                config = PagingConfig(
-                    pageSize = 60,
-                    initialLoadSize = 120,
-                    // 占位符模式：大图查看页需要按全局索引直接跳转到任意位置
-                    enablePlaceholders = true,
-                ),
-            ) {
-                db.itemDao().pagedItems(query)
-            }.flow,
-        )
-    }
+    /** Prepared once per filter, shared by paging and counts (including the actual color top 150). */
+    suspend fun prepareQuery(filter: Filter): SupportSQLiteQuery =
+        if (filter.similarColor != null) buildSimilarQuery(rankBySimilarColor(filter.similarColor))
+        else buildQuery(filter)
+
+    fun pagedItems(query: SupportSQLiteQuery): Flow<PagingData<ItemWithTags>> =
+        Pager(
+            config = PagingConfig(pageSize = 60, initialLoadSize = 120, enablePlaceholders = true),
+        ) { db.itemDao().pagedItems(query) }.flow
+
+    fun currentTagCounts(query: SupportSQLiteQuery): Flow<List<TagCount>> =
+        db.itemDao().filteredTagCounts(buildTagCountQuery(query))
 
     fun tagCounts(): Flow<List<TagCount>> = db.itemDao().tagCounts()
 
@@ -121,6 +112,15 @@ class ItemRepository(private val db: AppDatabase) {
                     "ORDER BY CASE id $caseOrder END",
                 (rankedIds + rankedIds).toTypedArray(),
             )
+        }
+
+        /** Counts the complete prepared result, preserving every predicate and binding. */
+        fun buildTagCountQuery(result: SupportSQLiteQuery): SupportSQLiteQuery = object : SupportSQLiteQuery {
+            override val sql: String = "SELECT tags.tag AS tag, COUNT(DISTINCT tags.itemId) AS cnt " +
+                "FROM item_tag AS tags INNER JOIN (${result.sql}) AS current_items " +
+                "ON tags.itemId = current_items.id GROUP BY tags.tag"
+            override val argCount: Int get() = result.argCount
+            override fun bindTo(statement: androidx.sqlite.db.SupportSQLiteProgram) = result.bindTo(statement)
         }
 
         fun buildQuery(filter: Filter): SupportSQLiteQuery {

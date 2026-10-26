@@ -1,0 +1,25 @@
+{
+  "applicationVersion": "4.0.0",
+  "folders": [],
+  "tagsGroups": [
+    {
+      "id": "g1",
+      "name": "主题",
+      "tags": [
+        "秋天",
+        "人像",
+        "组专用"
+      ],
+      "color": "#ff0000",
+      "description": "example",
+      "custom": {
+        "keep": true
+      }
+    },
+    {
+      "id": "g2",
+      "name": "空组",
+      "tags": []
+    }
+  ]
+}

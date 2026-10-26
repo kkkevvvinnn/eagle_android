@@ -87,7 +87,7 @@ fun GridScreen(
     val scope = rememberCoroutineScope()
     val items = vm.pagingData.collectAsLazyPagingItems()
     val filter by vm.filter.collectAsState()
-    val tagCounts by vm.tagCounts.collectAsState()
+    val tagCatalog by vm.tagCatalog.collectAsState()
     val itemCount by vm.itemCount.collectAsState()
     val scanState by vm.scanState.collectAsState()
     val columnCount by vm.columnCount.collectAsState()
@@ -196,7 +196,7 @@ fun GridScreen(
         Column(Modifier.padding(padding)) {
             FilterBar(
                 filter = filter,
-                tagCounts = tagCounts,
+                tagCatalog = tagCatalog,
                 onFilterChange = vm::updateFilter,
             )
 

@@ -47,7 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.eagleviewer.app.data.Filter
 import com.eagleviewer.app.data.Sort
-import com.eagleviewer.app.data.db.TagCount
+import com.eagleviewer.app.data.TagCatalog
+import com.eagleviewer.app.data.TagSection
+import com.eagleviewer.app.data.CatalogTag
 
 /**
  * 网格页顶部的筛选栏：排序、评分下限、标签多选（与/或）。
@@ -55,7 +57,7 @@ import com.eagleviewer.app.data.db.TagCount
 @Composable
 fun FilterBar(
     filter: Filter,
-    tagCounts: List<TagCount>,
+    tagCatalog: TagCatalog,
     onFilterChange: ((Filter) -> Filter) -> Unit,
 ) {
     var showTagSheet by remember { mutableStateOf(false) }
@@ -122,7 +124,7 @@ fun FilterBar(
     if (showTagSheet) {
         TagSheet(
             filter = filter,
-            tagCounts = tagCounts,
+            tagCatalog = tagCatalog,
             onFilterChange = onFilterChange,
             onDismiss = { showTagSheet = false },
         )
@@ -173,14 +175,19 @@ private fun StarFilter(minStar: Int, onChange: (Int) -> Unit) {
 @Composable
 private fun TagSheet(
     filter: Filter,
-    tagCounts: List<TagCount>,
+    tagCatalog: TagCatalog,
     onFilterChange: ((Filter) -> Filter) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var tagQuery by remember { mutableStateOf("") }
-    val shownTags = remember(tagCounts, tagQuery) {
-        if (tagQuery.isBlank()) tagCounts
-        else tagCounts.filter { it.tag.contains(tagQuery.trim(), ignoreCase = true) }
+    val scrollState = rememberScrollState()
+    val shownSections = remember(tagCatalog, tagQuery, filter.tags) {
+        val known = tagCatalog.sections.flatMap { it.tags }.map { it.tag }.toSet()
+        val sections = tagCatalog.sections.map { section ->
+            section.copy(tags = section.tags.filter { it.tag.contains(tagQuery.trim(), ignoreCase = true) })
+        }
+        val orphans = (filter.tags - known).map { CatalogTag(it, 0, 0, 0) }
+        if (orphans.isEmpty()) sections else listOf(TagSection("已选（目录外，可移除）", orphans)) + sections
     }
     // 跳过部分展开态：否则「清除」按钮出现/消失导致内容高度变化时，
     // sheet 会重新停靠并滑动，视觉上像滚动位置被重置回顶部
@@ -221,7 +228,7 @@ private fun TagSheet(
                 }
             }
             // 标签数量多时的搜索框
-            if (tagCounts.size > 8) {
+            run {
                 OutlinedTextField(
                     value = tagQuery,
                     onValueChange = { tagQuery = it },
@@ -250,37 +257,42 @@ private fun TagSheet(
                 label = { Text("未标记（无标签图片）") },
                 modifier = Modifier.padding(vertical = 4.dp),
             )
-            if (shownTags.isEmpty()) {
-                Text(
-                    if (tagCounts.isEmpty()) "图库中还没有标签" else "没有匹配的标签",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
-            } else {
-                // 标签区自己持有滚动状态并限定高度：点选标签触发重组时保持滚动位置，
-                // 不会被 BottomSheet 内部布局变化重置回顶部
-                Column(
-                    Modifier
-                        .heightIn(max = 400.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    ) {
-                        shownTags.forEach { tc ->
-                            val selected = tc.tag in filter.tags
-                            FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    onFilterChange { f ->
-                                        val next = if (selected) f.tags - tc.tag else f.tags + tc.tag
-                                        // 选中任一标签即退出「未标记」与「相似配色」模式（互斥）
-                                        f.copy(tags = next, untaggedOnly = false, similarColor = null)
-                                    }
-                                },
-                                label = { Text("${tc.tag} (${tc.cnt})") },
-                            )
+            Text("数量：当前完整筛选结果 / 全库已索引非回收站素材",
+                style = MaterialTheme.typography.bodySmall)
+            Text("排序：Mac 近30天新增关联、全库覆盖数、UTF-8 标签顺序",
+                style = MaterialTheme.typography.bodySmall)
+            Text("仅统计本机可浏览索引；缺失原图及仅回收站标签不另行扫描。",
+                style = MaterialTheme.typography.bodySmall)
+            if (tagCatalog.status.isNotEmpty()) {
+                Text(tagCatalog.status, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            // One stable scroll owner remains composed even when search has no matches.
+            Column(Modifier.heightIn(max = 400.dp).verticalScroll(scrollState)) {
+                if (shownSections.all { it.tags.isEmpty() }) {
+                    Text(if (tagQuery.isEmpty()) "图库中还没有标签" else "没有匹配的标签",
+                        modifier = Modifier.padding(vertical = 12.dp))
+                }
+                shownSections.forEach { section ->
+                    if (section.tags.isNotEmpty() || tagQuery.isEmpty()) {
+                        Text(section.name.ifEmpty { "未命名分组" },
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 8.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(vertical = 4.dp)) {
+                            section.tags.forEach { tc ->
+                                val selected = tc.tag in filter.tags
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        onFilterChange { f ->
+                                            val next = if (tc.tag in f.tags) f.tags - tc.tag else f.tags + tc.tag
+                                            f.copy(tags = next, untaggedOnly = false, similarColor = null)
+                                        }
+                                    },
+                                    label = { Text("${tc.tag} (${tc.current}/${tc.global})") },
+                                )
+                            }
                         }
                     }
                 }
