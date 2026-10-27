@@ -22,7 +22,7 @@
 ```bash
 ./gradlew :app:assembleDebug      # debug APK
 ./gradlew :app:assembleRelease    # release APK（本地无签名环境变量时回退 debug 签名）
-./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，72 项，必须全绿才能提交）
+./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，94 项，必须全绿才能提交）
 ./gradlew :app:installDebug       # 安装到已连接 adb 设备
 ```
 
@@ -72,10 +72,12 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `MainActivity.kt` | 唯一 Activity；主题模式收集；NavHost；**启动时校验 SAF 持久授权** |
 | `data/EagleItemMeta.kt` | `.info/metadata.json` 模型 + `parseMtimeJson`；`Palette`；`json` 单例（ignoreUnknownKeys） |
 | `data/EagleScanner.kt` | 增量扫描器（见 §5.1，约束最多） |
+| `data/DetailNavigation.kt` | 点击root/epoch导航票据、无损codec/准入与可重试初始化状态 |
+| `data/IndexPublication.kt` | 完整URI/epoch/ready持久快照、扫描/分享协调与Paging门禁 |
 | `data/ScanDiffer.kt` | diff 纯逻辑（JVM 可测） |
 | `data/ItemRepository.kt` | `Filter`/`Sort` 模型、动态筛选 SQL、相似配色检索 |
 | data/FilterPersistence.kt | 筛选状态编解码：新默认 ANY，兼容旧省略模式的 ALL；新保存显式记录模式 |
-| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、扫描时间、索引根目录及绑定完整 URI 的标签快照） |
+| `data/SettingsRepository.kt` | DataStore 封装（目录、多图库列表、筛选 JSON、列数、主题、active/index/scanTime单一快照及绑定完整URI的标签快照） |
 | `data/ColorFilter.kt` / `data/ColorProjection.kt` | 主色判定、坏色板隔离、同一颜色结果与计数、完整URI/generation门禁及带占位符内存分页 |
 | `data/AndroidPalette.kt` / `data/LocalPalette.kt` / `data/SwiftMmcq.kt` | 当前范围缺色板补算、SAF只读快照、受限软件解码、私有严格缓存及固定MIT内核 |
 | `data/TagCatalog.kt` | 辅助文件有界严格解析、Mac30天新增频率、UTF8字面排序、分组目录与标签缓存 ticket |
@@ -129,9 +131,8 @@ xxx.library/
 2. **mtime 为空映射时拒绝扫描**（抛 ScannerException）：同步工具写入中间态的 `{}`
    会让 diff 认为全库待删（全库索引被清空）。
 3. **mtime 单条坏值跳过**：null/字符串/浮点用 `runCatching` 逐条容错（一条脏数据中断整个扫描）。
-4. **扫描互斥**：`GridViewModel.scanMutex` 串行化一切扫描（并发扫描会把两个图库混入同一索引表）。
-5. **扫描成功才持久化当前图库 URI**（`onLibraryPicked`/`switchLibrary`）：失败时保持
-   旧 URI + 旧索引一致（否则标题新库、内容旧库的永久错配）。
+4. **扫描与分享互斥**：AppContainer 的 `IndexCoordinator` 串行化预检、扫描、最终发布与分享读取/交付；VM 的 scanMutex 只串行化扫描UI状态。所有本应用索引写入必须经过协调器。
+5. **扫描完成才原子发布**：合法非空mtime预检后，先持久building/not-ready epoch，再允许Room变动。core及辅助TagSnapshot完成后，在一个DataStore edit提交activeUri、完整root、epoch、ready与scanTime；最终提交前检查取消，提交和live发布不可被取消拆开，之后不追加await。预检失败不改旧发布/索引；postblock失败保守隐藏并提示重扫，不能宣称旧索引仍完整。
 6. **索引只对应"当前激活图库"**：单表单库设计，切库扫描的 diff 会删掉旧库全部条目
    （`toDelete = indexed − mtime`）。这是设计取舍，不是 bug。
 7. **条目级跳过与自愈**：原图文件不存在（同步不全）的条目不索引、不计入 scanned，
@@ -144,16 +145,7 @@ xxx.library/
    缺失时 Coil `onError` 触发 `useOriginal` 降级原图（GridCell 已有该路径）。
 10. **`catch (e: Exception)` 之前必须先 `catch (CancellationException) { throw e }`**
     （结构化并发，取消不能被报成"扫描失败"）。
-11. **索引必须绑定图库根目录（tree documentId），根目录不一致时全量重建**：
-    DataStore 持久化 `indexedRoot`，扫描前与本次根目录比对，不一致先 `clearAll()` 再扫
-    （mtime 校验通过之后才清空）。**新根目录必须在清空索引的同一时机持久化**（不是扫描
-    成功后）：扫描中途进程被杀时索引已写入新根目录的部分 URI，存储值若还是旧根目录，
-    之后扫描同内容旧库时 diff 看不出变化，新旧混杂的 URI 会永久残留。同一份图库换路径后
-    mtime.json 内容完全相同，增量 diff 看不出任何变化，已索引条目的 URI 会永远指向
-    旧目录（Coil 全部加载失败、重扫无效）——只能靠根目录比对触发重建。
-    真实事故（1.7.3）：用户新增了一个内容完全相同的文件夹作为新图库，重叠条目的
-    lastModified 与索引一致、未被重扫，URI 仍指向旧图库目录；删除旧图库（目录随之消失）
-    后旧路径失效，165 条重叠图片全部灰块，重扫无效（新增的 99 条用新路径索引、显示正常）。
+11. **索引身份是完整SAF tree URI，包含authority**：不能仅比较tree documentId。不同完整URI、legacy active/docId-only、building、identity mismatch均在有效mtime之后clear全量重建；即使恢复目标与当前active相同，也不能走旧diff。旧1.7.3路径事故说明只靠ID/mtime不足，后续发现不同authority但相同docId也会保留旧URI。升级旧索引及中断扫描后，启动必须遮住结果，提供同库重新扫描恢复；不得用active URI补造可信generation0。
 
 ### 5.2 SQL 与分页（ItemDao / ItemRepository）
 
@@ -232,7 +224,7 @@ xxx.library/
 
 1. 每次合法 `mtime.json` 校验后的扫描都读取根 `metadata.json` 与可选 `kevin-tag-history.json`，即使 item diff 为空。各文件 streaming 最多8MiB、UTF8严格解码，重复JSON键及孤立代理拒绝；分组只验证过 Eagle4.0.0。两份文件分别失败降级，不清空图片索引、不伪造时间、不创建或重写任何图库文件。
 2. history仅接受exact schema1/source Mac/actions，事务及关联上限与Mac合同一致。窗口含左右边界，未来时间不计；按每条新增图片关联累加，旧图片时间不补算历史。只读手机不增加Mac次数。该文件无libraryID，无法识别误拷的合法异库历史或合法但跨文件同步不一致。
-3. DataStore单 `TagCatalogSnapshot` 保存完整root URI（含authority）、generation和已成功payload。合法mtime后、Room变动前begin；换root即清旧payload，同root保留上次成功快照。核心成功后匹配root/generation ticket才能publish；A→B→A迟到结果不得发布。仍由原唯一scanMutex串行扫描；取消须传播。读取辅助文件失败只发布该部分fallback，核心失败不发布候选payload。
+3. DataStore单 `TagCatalogSnapshot` 保存完整root URI（含authority）、generation和已成功payload。合法mtime后、Room变动前begin；换root即清旧payload，同root保留上次成功快照。核心成功后匹配root/generation ticket才能publish；A→B→A迟到结果不得发布。仍由app-scoped IndexCoordinator串行扫描与最终发布；取消须传播。读取辅助文件失败只发布该部分fallback，核心失败不发布候选payload。
 4. `GridViewModel.preparedQuery`将同一结果SQL共享给Paging与当前标签计数，后者包裹完整结果并转发原绑定。ANY/ALL、评分、搜索、未标签均包含；主色开启时计数和分页取同一不可变ColorProjection，不另算候选集合。DAO观察items/item_tag变化，Paging占位符/共享VM/touched恢复门禁不变。
 5. Android目录仅来自本机可浏览的非回收站Room索引及合法分组。未同步原图、trash-only标签不为补目录而额外全扫；与Mac完整库数字在部分同步时可能不同。分组/近期窗口按显式扫描读取时更新，无idle轮询。设备SAF、DataStore进程重启及Compose交互仍需后续真机验证，构建与JVM测试不替代设备证明。
 
@@ -240,7 +232,8 @@ xxx.library/
 
 1. `semanticsVersion=1`：11常用色HSV或自选sRGB/D65 Lab ΔE76，容差10..60/default25。匹配色块的百分比占比累计≥15，Kahan补偿与8ULP边界对齐Mac；不是0..1比例或最近距离排序。raw palette有界解析，坏结构/缺字段/无有效占比为unknown；EagleItemMeta先隔离palettes，坏色板不能丢掉整张图片的名字/标签/评分/索引。详情色卡也使用同一验证。
 2. 本地Room色板编码显式保留ratio=0。旧缓存曾省略0；显式scan只把缺ratio可疑ID纳入源文件重读，不推断缺值=0、不修改Eagle。源确认后缓存规范化；原源缺值按unknown，不能循环重扫。
-3. 完整URI+generation的颜色发布门禁在scan开始block，成功后ready，失败保守block；配合live URI、mapLatest取消及Eagerly共享投影，晚回包/重订阅/ABA不得发布旧根结果。该门禁与分组DataStore snapshot ticket各自保留；设备Room变动/进程生命周期仍未运行验证。
+3. 普通分页、颜色投影、详情、全局/当前标签、itemCount及selection/share共用持久完整URI/epoch/ready门禁。generation0和旧docId不可信；block同步invalidate旧PagingSource、清选择，load前后与异步回包均验证ticket，grid/detail使用同一epoch共享cache，切epoch取消旧cache作用域。计数携带publication并在UI拒绝旧epoch replay；详情导航必须携带点击时完整root/epoch票据，先验证持久身份才收集页面；不能在首次组合时补取当前身份。旧导航、失效或跨epoch的详情隐藏并退出；启动等待身份初始化完成后才恢复导航，读取失败显示重试，不能继续按原index展示另一库。分享分块DAO查询及系统分享动作交付与扫描共用锁；building/legacy启动显示重新扫描恢复入口，同active URI也可重建。
+
 4. FilterPersistence把旧similarColor低24位RGB迁至custom25；显式新colorCondition（包括null）优先。新保存显式语义版本/容差并删除legacy；旧省略andMode仍按ALL，fresh默认ANY/touched门禁保持。新主色chip明确≥15%，这是从旧nearest/top150切换到阈值交集语义，不称结果算法兼容。
 5. 自选色仅接受六个ASCII十六进制字符，不接受正负号、前缀或空白；输入无效时不可提交颜色。
 
@@ -252,13 +245,15 @@ xxx.library/
 4. app-private缓存单记录严格UTF8/JSON≤16KiB，绑定完整root/sourceURI/algorithm并核fresh sourceSHA；校验schema、尺寸、eligible/population/ratio/唯一颜色与顺序。磁盘≤10k条/32MiB，峰值含旧target和新temp；无安全临时slot可跳过cache写，不破坏原条目。只对平台可信dataDir/cacheDir先canonical并确认cache仍在真实app dataDir内，再拼自有叶；不可canonical自有cache/scratch叶。自有路径existing目录/所有祖先/entry链接在读写/cleanup前拒绝，cache故障miss/no-op，scratch故障unknown，不能因此应用启动失败。只声明预先存在链接检查，不声称防恶意同UID并发替换。
 5. 磁盘一次cold index后增量计数，避免逐条全目录stat。内存仅palette状态≤10k，key含root/scan generation/sourceURI/lastModified/itemID/algorithm和每VM唯一UUID；同epoch换色复用，新scan/session重新捕获核SHA，不能无源复用旧disk。超过cap会重新捕获，不承诺无限复用。
 6. 普通finally清理成功/错误/取消快照；进程被杀不执行finally，最多留一份本串行路径快照，下一capture安全回收专用snapshot-*.tmp，删不掉则拒绝新capture以免累积。JNI解码不能立即中断，返回后检查取消再丢弃。缓存/源/OOM为可重试unknown，不弹模态错误、不失败图片浏览。
-7. JVM fake验证cache/source/取消与纯文件边界，SDK编译/文档只证明API接线。未真机/模拟器验证SAF provider、Bitmap/ICC/HEIC/缩放、Compose、进程生命周期、性能或RSS。继承generation0/中断切库索引恢复边界，不将本阶段称为已解决。
+7. JVM fake验证cache/source/取消与纯文件边界，SDK编译/文档只证明API接线。未真机/模拟器验证SAF provider、Bitmap/ICC/HEIC/缩放、Compose、进程生命周期、性能或RSS。generation0/中断切库边界已接入持久publication协调器并通过JVM故障注入；实际Room/DataStore/SAF/Compose/进程kill仍未设备验证。合同假设本应用所有索引写入口遵循协调器，不保护任意外部替换私有DB或恶意同UID并发。
 
 ## 6. 测试
 
 纯 JVM 单测在 `app/src/test/java/com/eagleviewer/app/data/`：
 - `EagleItemMetaTest`：真实样本解析 + mtime 容错
 - `ScanDifferTest`：diff 逻辑
+- `DetailNavigationTest`：7项生产codec/准入/加载状态测试，含延迟打开、ABA、同身份saved token/冷加载模型、坏票据及初始化失败/取消/重试；不等同实际Android恢复
+- `IndexPublicationTest`：生产协调器及mtime/分页门禁；15项方法含40个core失败/取消组合，覆盖legacy/authority碰撞、持久block前后、同根恢复、restart模型、晚页/ABA、selection与分享锁及最终提交取消；fakeStore/core不是Android instrumentation
 - `FilterQueryTest`：动态 SQL、一次标签绑定、命中数排序及稳定并列、LIKE 转义
 - FilterPersistenceTest：旧省略模式兼容、新默认 ANY、显式模式与全字段往返
 - `ColorSearchTest`：54状态/4266 Mac原生golden布尔、10数值向量、色板隔离与ratio0往返/旧缓存repair、旧状态迁移、1203行与分页/计数、取消及异步ABA门禁
@@ -271,7 +266,7 @@ UI/手势无自动化测试，靠真机验证（构建通过 + 用户在手机�
 
 ## 7. 已知取舍（有意为之，不要"修复"）
 
-- 索引不区分图库（单表对应当前激活库，切库即重建）；`removeLibrary` 不主动清索引
+- 单表仅缓存一个图库；完整URI/epoch/ready发布约束归属，切库重建，未ready隐藏并允许重扫；`removeLibrary` 不主动清索引
 - 筛选变化后网格滚动位置重置（paging 重建，rememberSaveable 状态销毁）
 - 主色筛选优先有效Eagle色板，缺失/坏色板仅在当前基础筛选范围内本地补算；仍无法分析则unknown，关闭颜色正常浏览。派生数据仅应用私有缓存，不改Eagle/Room palette元数据；详情色卡仍只显示Eagle色板。实际Android解码、设备性能和大库内存未验证。
 - 分享 URI 顺序按数据库返回序，不保选择顺序

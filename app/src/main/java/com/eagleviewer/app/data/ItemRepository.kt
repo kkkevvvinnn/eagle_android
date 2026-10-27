@@ -48,10 +48,10 @@ class ItemRepository(private val db: AppDatabase) {
 
     fun observeItems(query: SupportSQLiteQuery): Flow<List<ItemWithTags>> = db.itemDao().observeItems(query)
 
-    fun pagedItems(query: SupportSQLiteQuery): Flow<PagingData<ItemWithTags>> =
+    fun pagedItems(query: SupportSQLiteQuery, index: IndexCoordinator, state: IndexPublication): Flow<PagingData<ItemWithTags>> =
         Pager(
             config = PagingConfig(pageSize = 60, initialLoadSize = 120, enablePlaceholders = true),
-        ) { db.itemDao().pagedItems(query) }.flow
+        ) { index.guard(db.itemDao().pagedItems(query), state) }.flow
 
     fun currentTagCounts(query: SupportSQLiteQuery): Flow<List<TagCount>> =
         db.itemDao().filteredTagCounts(buildTagCountQuery(query))

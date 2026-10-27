@@ -10,12 +10,12 @@ import androidx.paging.PagingConfig
 import androidx.sqlite.db.SupportSQLiteQuery
 import com.eagleviewer.app.data.ColorProjection
 import com.eagleviewer.app.data.ColorPagingSource
-import com.eagleviewer.app.data.ColorPublicationGate
-import com.eagleviewer.app.data.ColorTicket
-import com.eagleviewer.app.data.db.TagCount
+import com.eagleviewer.app.data.IndexPublication
 import com.eagleviewer.app.data.PaletteRequestGate
 import com.eagleviewer.app.data.PaletteProgress
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -40,6 +40,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.first
@@ -67,108 +70,125 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 多选模式下的选中 id 集合；空集合 = 非多选模式。 */
     val selection = MutableStateFlow<Set<String>>(emptySet())
 
-    private val colorRoot=container.settings.libraryUri.stateIn(viewModelScope,SharingStarted.Eagerly, "")
-    private val colorGate=ColorPublicationGate()
-    private val colorTicket=MutableStateFlow(colorGate.current)
+    val publication = container.index.publication
     // AppContainer outlives a ViewModel; generation alone may restart at zero in a new session.
     private val paletteSession=java.util.UUID.randomUUID().toString()
     private val paletteRequests=PaletteRequestGate()
     private val _paletteProgress=MutableStateFlow<PaletteProgress?>(null)
     val paletteProgress:StateFlow<PaletteProgress?> = _paletteProgress
     private sealed interface Prepared {
-        data class Sql(val query:SupportSQLiteQuery):Prepared
-        data class Color(val projection:ColorProjection):Prepared
+        val publication: IndexPublication
+        data class Blocked(override val publication: IndexPublication): Prepared
+        data class Sql(override val publication: IndexPublication, val query: SupportSQLiteQuery): Prepared
+        data class Color(override val publication: IndexPublication, val projection: ColorProjection): Prepared
     }
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-    private val preparedQuery = combine(
-        filter,
-        colorRoot, colorTicket,
-    ) { f,root,ticket -> Triple(f,root,ticket) }
-        .flatMapLatest { (f,root,ticket) ->
+    private val preparedQuery = combine(filter, publication) { f, state -> f to state }
+        .flatMapLatest { (f, state) ->
             paletteRequests.invalidate()
-            _paletteProgress.value=null
-            val condition=f.effectiveColor
-            if(condition==null) flow<Prepared> {
-                if(f.nameQuery.isNotEmpty()) delay(300)
-                emit(Prepared.Sql(container.items.prepareQuery(f)))
-            }
-            else flow<Prepared> {
-                val key=if(ticket.generation==0L) ticket.copy(root=root) else ticket
-                // Invalidate immediately while roots change or Room assembles the next snapshot.
-                emit(Prepared.Color(ColorProjection.empty(key)))
-                if(f.nameQuery.isNotEmpty()) delay(300)
-                if(key.ready && key.root==root) {
-                    emitAll(container.items.observeItems(container.items.prepareQuery(f.clearColor()))
-                        .mapLatest { rows ->
-                            val request=paletteRequests.begin(key)
-                            fun current()=paletteRequests.accepts(request) && filter.value==f && colorTicket.value==ticket &&
-                                colorRoot.value==root && (ticket.generation==0L || colorGate.accepts(key,root))
-                            try {
-                                val projection=withContext(Dispatchers.Default) {
-                                    ColorProjection.create(key,rows,condition,
-                                        palette={ container.localPalettes.resolve(key,it,paletteSession) },
-                                        progress={ done,total ->
-                                            if(current()) _paletteProgress.value=PaletteProgress(request,done,total)
-                                        })
-                                }
-                                currentCoroutineContext().ensureActive()
-                                if(current()) Prepared.Color(projection) else Prepared.Color(ColorProjection.empty(key))
-                            } finally {
-                                if(paletteRequests.accepts(request)) _paletteProgress.value=null
-                            }
-                        })
+            _paletteProgress.value = null
+            flow<Prepared> {
+                if (!container.index.accepts(state)) {
+                    emit(Prepared.Blocked(state))
+                    return@flow
                 }
+                val condition = f.effectiveColor
+                if (condition != null) {
+                    val waiting = paletteRequests.begin(state.ticket)
+                    _paletteProgress.value = PaletteProgress(waiting, 0, 0)
+                    emit(Prepared.Blocked(state))
+                }
+                if (f.nameQuery.isNotEmpty()) delay(300)
+                if (!container.index.accepts(state)) return@flow
+                if (condition == null) emit(Prepared.Sql(state, container.items.prepareQuery(f)))
+                else emitAll(container.items.observeItems(container.items.prepareQuery(f.clearColor()))
+                    .mapLatest { rows ->
+                        val request = paletteRequests.begin(state.ticket)
+                        fun current() = paletteRequests.accepts(request) && filter.value == f && container.index.accepts(state)
+                        try {
+                            val projection = withContext(Dispatchers.Default) {
+                                ColorProjection.create(state.ticket, rows, condition,
+                                    palette = { container.localPalettes.resolve(state.ticket, it, paletteSession) },
+                                    progress = { done, total ->
+                                        if (current()) _paletteProgress.value = PaletteProgress(request, done, total)
+                                    })
+                            }
+                            currentCoroutineContext().ensureActive()
+                            if (current()) Prepared.Color(state, projection) else Prepared.Blocked(state)
+                        } finally {
+                            if (paletteRequests.accepts(request)) _paletteProgress.value = null
+                        }
+                    })
             }
-        }
-        .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
+        }.shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
 
-    private fun currentProjection(projection:ColorProjection):Boolean =
-        projection.isCurrent(colorTicket.value,colorRoot.value)
+    /** Each durable epoch owns its own shared cache. An old cached PagingData cannot be
+     * recollected under a new ready epoch, even before flatMapLatest handles the block. */
+    data class PagingSession(val publication: IndexPublication, val data: Flow<PagingData<ItemWithTags>>)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val pagingData: Flow<PagingData<ItemWithTags>> = preparedQuery
-        .flatMapLatest { prepared -> when(prepared) {
-            is Prepared.Sql -> container.items.pagedItems(prepared.query)
-            is Prepared.Color -> if(!currentProjection(prepared.projection) || prepared.projection.rows.isEmpty()) flowOf(PagingData.empty()) else
-                Pager(PagingConfig(pageSize=60,initialLoadSize=120,enablePlaceholders=true)) {
-                    ColorPagingSource(prepared.projection.rows)
+    val pagingSession: StateFlow<PagingSession> = publication.transformLatest { state -> coroutineScope {
+        val data = combine(preparedQuery, publication) { prepared, live ->
+            if (live == state && prepared.publication == state) prepared else Prepared.Blocked(state)
+        }.flatMapLatest { prepared ->
+            if (!container.index.accepts(state)) flowOf(PagingData.empty())
+            else when (prepared) {
+                is Prepared.Blocked -> flowOf(PagingData.empty())
+                is Prepared.Sql -> container.items.pagedItems(prepared.query, container.index, state)
+                is Prepared.Color -> Pager(PagingConfig(pageSize=60, initialLoadSize=120, enablePlaceholders=true)) {
+                    container.index.guard(ColorPagingSource(prepared.projection.rows), state)
                 }.flow
-        } }.cachedIn(viewModelScope)
+            }
+        }.cachedIn(this)
+        emit(PagingSession(state, data))
+        awaitCancellation() // cancelling an epoch also releases its shared Paging cache
+    } }.stateIn(viewModelScope, SharingStarted.Eagerly, PagingSession(IndexPublication(), flowOf(PagingData.empty())))
+
+    data class PublishedValue<T>(val publication: IndexPublication, val value: T)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val currentTagCounts:Flow<List<TagCount>> = preparedQuery.flatMapLatest { prepared -> when(prepared) {
-        is Prepared.Sql -> container.items.currentTagCounts(prepared.query)
-        is Prepared.Color -> flowOf(if(currentProjection(prepared.projection)) prepared.projection.counts else emptyList())
-    } }
+    val tagCatalog: StateFlow<PublishedValue<TagCatalog>> = publication.flatMapLatest { state ->
+        if (!state.readable) flowOf(PublishedValue(state, TagCatalog()))
+        else combine(container.settings.tagSnapshot, container.items.tagCounts(),
+            preparedQuery.filter { it.publication == state }.flatMapLatest { prepared ->
+                when (prepared) {
+                    is Prepared.Blocked -> flowOf(emptyList())
+                    is Prepared.Sql -> container.items.currentTagCounts(prepared.query)
+                    is Prepared.Color -> flowOf(prepared.projection.counts)
+                }
+            }) { snapshot, global, current ->
+            PublishedValue(state, if (!container.index.accepts(state)) TagCatalog()
+            else TagCatalogParser.catalog(snapshot.forRoot(state.root), global.associate { it.tag to it.cnt },
+                current.associate { it.tag to it.cnt }))
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, PublishedValue(IndexPublication(), TagCatalog()))
 
-    val tagCatalog: StateFlow<TagCatalog> = combine(
-        container.settings.tagSnapshot, container.settings.libraryUri,
-        container.items.tagCounts(), currentTagCounts,
-    ) { snapshot, root, global, current ->
-        TagCatalogParser.catalog(snapshot.forRoot(root), global.associate { it.tag to it.cnt },
-            current.associate { it.tag to it.cnt })
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TagCatalog())
-
-    val itemCount: StateFlow<Int> = container.items.itemCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val itemCount: StateFlow<PublishedValue<Int>> = publication.flatMapLatest { state ->
+        if (!state.readable) flowOf(PublishedValue(state, 0))
+        else container.items.itemCount().map { PublishedValue(state, if (container.index.accepts(state)) it else 0) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, PublishedValue(IndexPublication(), 0))
 
     /** 已添加的图库 URI 列表。 */
     val libraries: StateFlow<List<String>> = container.settings.libraries
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 当前激活的图库 URI。 */
-    val activeLibraryUri: StateFlow<String> = container.settings.libraryUri
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
-
-    /** 上次扫描时间（毫秒），0 = 从未扫描。 */
-    val lastScanTime: StateFlow<Long> = container.settings.lastScanTime
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-
     val scanState = MutableStateFlow<ScanUiState>(ScanUiState.Idle)
 
-    /** 扫描串行化：并发扫描（如扫描中切换图库）会把两个图库的条目混进同一索引。 */
+    // Serialize UI status as well; the app-scoped coordinator separately locks all index/publication/share work.
     private val scanMutex = Mutex()
+    @Volatile private var selectionPublication: IndexPublication? = null
+    private val removeBlockListener = container.index.onBlocked {
+        clearSelection()
+        paletteRequests.invalidate()
+        _paletteProgress.value = null
+    }
+
+    override fun onCleared() {
+        removeBlockListener()
+        super.onCleared()
+    }
 
     // 恢复竞态防护：DataStore 恢复值晚到时，不覆盖用户已做的修改
     private var filterTouched = false
@@ -218,22 +238,34 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch { container.settings.setThemeMode(mode) }
     }
 
-    fun toggleSelection(id: String) {
+    fun toggleSelection(id: String, state: IndexPublication) = container.index.ifCurrent(state) {
+        if (selectionPublication != state) clearSelection()
+        selectionPublication = state
         selection.value = if (id in selection.value) selection.value - id
         else selection.value + id
     }
 
-    fun enterSelection(id: String) {
+    fun enterSelection(id: String, state: IndexPublication) = container.index.ifCurrent(state) {
+        selectionPublication = state
         selection.value = setOf(id)
     }
 
     fun clearSelection() {
+        selectionPublication = null
         selection.value = emptySet()
     }
 
-    /** 多选分享用：按选中 id 分批查原图 content URI（防 SQL 变量上限）。 */
-    suspend fun selectedImageUris(): List<String> =
-        container.db.itemDao().imageUrisForChunked(selection.value.toList())
+    fun selectionIsCurrent(): Boolean = selectionPublication?.let(container.index::accepts) == true
+
+    /** Query and hand off the verified URIs without letting a scan start between the
+     * suspend DAO read and the synchronous Android share action. */
+    suspend fun shareSelectedImages(share: (List<String>) -> Unit) {
+        val expected = selectionPublication ?: return
+        val ids = selection.value.toList()
+        container.index.readCurrent(expected, { container.db.itemDao().imageUrisForChunked(ids) }) { uris ->
+            if (uris.isNotEmpty()) share(uris)
+        }
+    }
 
     fun rescan() {
         viewModelScope.launch {
@@ -250,7 +282,7 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     fun onLibraryPicked(uri: String) {
         viewModelScope.launch {
             container.settings.addLibrary(uri)
-            if (runScan(uri)) container.settings.setLibraryUri(uri)
+            runScan(uri)
         }
     }
 
@@ -259,11 +291,11 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 切换到已添加的另一个图库，并对新目录执行增量扫描重建索引。 */
     fun switchLibrary(uri: String) {
-        if (uri == activeLibraryUri.value) return
+        if (uri == publication.value.activeUri && publication.value.readable) return
         viewModelScope.launch {
-            // 扫描成功后才切换持久化的当前图库：失败时保持旧图库与旧索引一致，
-            // 避免「标题是新库、内容是旧库」的错配状态
-            if (runScan(uri)) container.settings.setLibraryUri(uri)
+            // Ready/active/time are committed together by the scanner coordinator.
+            // A failed mutation stays blocked until an explicit successful rescan.
+            runScan(uri)
         }
     }
 
@@ -274,23 +306,16 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
     /** 执行扫描，返回是否成功。并发调用经 [scanMutex] 串行化。 */
     suspend fun runScan(uri: String): Boolean = scanMutex.withLock {
         scanState.value = ScanUiState.Running(0, 0)
-        paletteRequests.invalidate()
-        _paletteProgress.value=null
-        val ticket=colorGate.begin(uri)
-        colorTicket.value=ticket
-        var succeeded=false
         try {
             val result = container.scanner.scan(uri) { p ->
                 scanState.value = ScanUiState.Running(p.done, p.total)
             }
-            container.settings.setLastScanTime(System.currentTimeMillis())
             val base = "扫描完成：更新 ${result.scanned} 张，移除 ${result.deleted} 张，共 ${result.total} 张"
             scanState.value = ScanUiState.Done(
                 if (result.missing > 0)
                     "$base；${result.missing} 张图片文件未同步到本机，同步补全后重新扫描即可"
                 else base
             )
-            succeeded=true
             true
         } catch (e: CancellationException) {
             // 结构化并发：取消不是扫描失败
@@ -302,8 +327,6 @@ class GridViewModel(private val container: AppContainer) : ViewModel() {
         } catch (e: Exception) {
             scanState.value = ScanUiState.Error("扫描失败：${e.message}")
             false
-        } finally {
-            colorTicket.value=colorGate.finish(ticket,succeeded)
         }
     }
 

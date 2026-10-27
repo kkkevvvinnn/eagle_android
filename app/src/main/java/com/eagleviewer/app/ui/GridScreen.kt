@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,27 +75,47 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.size.Precision
 import com.eagleviewer.app.data.db.ItemWithTags
+import com.eagleviewer.app.data.DetailNavigation
+import com.eagleviewer.app.data.DetailNavigationTicket
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun GridScreen(
     vm: GridViewModel,
-    onOpenDetail: (Int) -> Unit,
+    onOpenDetail: (Int, DetailNavigationTicket) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val session by vm.pagingSession.collectAsState()
+    key(session.publication) {
+        GridContent(vm, session, onOpenDetail, onOpenSettings)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun GridContent(
+    vm: GridViewModel,
+    session: GridViewModel.PagingSession,
+    onOpenDetail: (Int, DetailNavigationTicket) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val publication by vm.publication.collectAsState()
+    val readable = publication.readable && publication == session.publication
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val items = vm.pagingData.collectAsLazyPagingItems()
+    val items = session.data.collectAsLazyPagingItems()
     val filter by vm.filter.collectAsState()
     val paletteProgress by vm.paletteProgress.collectAsState()
-    val tagCatalog by vm.tagCatalog.collectAsState()
-    val itemCount by vm.itemCount.collectAsState()
+    val catalogSnapshot by vm.tagCatalog.collectAsState()
+    val tagCatalog = if (readable && catalogSnapshot.publication == publication) catalogSnapshot.value else com.eagleviewer.app.data.TagCatalog()
+    val countSnapshot by vm.itemCount.collectAsState()
+    val itemCount = if (readable && countSnapshot.publication == publication) countSnapshot.value else 0
     val scanState by vm.scanState.collectAsState()
     val columnCount by vm.columnCount.collectAsState()
-    val activeLibraryUri by vm.activeLibraryUri.collectAsState()
+    val activeLibraryUri = publication.activeUri
     val selection by vm.selection.collectAsState()
-    val selectionMode = selection.isNotEmpty()
+    val selectionMode = readable && vm.selectionIsCurrent() && selection.isNotEmpty()
     var searchActive by remember { mutableStateOf(filter.nameQuery.isNotBlank()) }
     // 筛选状态从 DataStore 异步恢复：恢复出非空搜索词时同步展开搜索栏
     LaunchedEffect(filter.nameQuery) {
@@ -124,28 +145,17 @@ fun GridScreen(
                     onClose = { vm.clearSelection() },
                     onShare = {
                         scope.launch {
-                            val uris = runCatching { vm.selectedImageUris() }.getOrElse {
-                                snackbar.showSnackbar("读取选中图片失败：${it.message}")
-                                return@launch
-                            }
-                            if (uris.isEmpty()) return@launch
-                            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                                type = "image/*"
-                                putParcelableArrayListExtra(
-                                    Intent.EXTRA_STREAM,
-                                    ArrayList(uris.map { it.toUri() }),
-                                )
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                clipData = ClipData.newUri(
-                                    context.contentResolver,
-                                    "images",
-                                    uris.first().toUri(),
-                                )
-                            }
                             runCatching {
-                                context.startActivity(Intent.createChooser(intent, "分享图片"))
+                                vm.shareSelectedImages { uris ->
+                                    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                        type = "image/*"
+                                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris.map { it.toUri() }))
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        clipData = ClipData.newUri(context.contentResolver, "images", uris.first().toUri())
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, "分享图片"))
+                                }
                             }.onFailure {
-                                // 选中过多时 intent 可能超出 binder 事务上限
                                 snackbar.showSnackbar("分享失败：${it.message ?: "选中图片过多"}")
                             }.onSuccess { vm.clearSelection() }
                         }
@@ -163,7 +173,8 @@ fun GridScreen(
                     title = {
                         // 有筛选条件时显示「筛选结果数 / 总数」，否则显示当前图库目录名
                         Text(
-                            if (filter.isActive)
+                            if (!readable) "索引需要重新扫描"
+                            else if (filter.isActive)
                                 "筛选 ${items.itemCount} / $itemCount"
                             else libraryDisplayName(activeLibraryUri).ifBlank { "Eagle 图库" },
                             maxLines = 1,
@@ -212,6 +223,14 @@ fun GridScreen(
             }
 
             when {
+                !readable -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(if (scanState is ScanUiState.Running) "正在重建索引，请稍候" else "索引尚未完成，请重新扫描恢复")
+                            androidx.compose.material3.TextButton(onClick = vm::rescan, enabled = scanState !is ScanUiState.Running) { Text("重新扫描") }
+                        }
+                    }
+                }
                 // 仅在没有任何数据时显示转圈；已有数据时刷新在后台进行，
                 // 避免筛选变化时网格与转圈来回切换造成的「双闪」
                 items.itemCount == 0 && (items.loadState.refresh is LoadState.Loading || paletteProgress != null) -> {
@@ -336,14 +355,16 @@ fun GridScreen(
                                     selectionMode = selectionMode,
                                     selected = data.item.id in selection,
                                     onClick = {
-                                        if (selectionMode) vm.toggleSelection(data.item.id)
-                                        else onOpenDetail(index)
+                                        if (selectionMode) vm.toggleSelection(data.item.id, session.publication)
+                                        else if (vm.publication.value == session.publication) {
+                                            DetailNavigation.capture(session.publication)?.let { ticket -> onOpenDetail(index, ticket) }
+                                        }
                                     },
                                     onLongClick = {
                                         // 多选模式下长按另一张图应追加/取消，
                                         // 而不是清空整个选择集重来
-                                        if (selectionMode) vm.toggleSelection(data.item.id)
-                                        else vm.enterSelection(data.item.id)
+                                        if (selectionMode) vm.toggleSelection(data.item.id, session.publication)
+                                        else vm.enterSelection(data.item.id, session.publication)
                                     },
                                 )
                             } else {

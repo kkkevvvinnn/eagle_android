@@ -10,9 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import java.io.FileNotFoundException
 
 /**
@@ -28,6 +26,7 @@ class EagleScanner(
     private val context: Context,
     private val db: AppDatabase,
     private val settings: SettingsRepository,
+    private val index: IndexCoordinator,
 ) {
 
     class ScannerException(message: String) : Exception(message)
@@ -42,16 +41,20 @@ class EagleScanner(
         val missing: Int = 0,
     )
 
-    /**
-     * [SettingsRepository.indexedRoot] 持久化了当前索引所属图库的 tree documentId。
-     * 与本次扫描的根目录不一致时清空索引全量重建：同一份图库换路径（tree docId 变了）
-     * 后 mtime.json 内容完全相同，增量 diff 看不出任何变化，已索引条目的 URI 会
-     * 永远指向旧目录（全部加载失败），必须靠根目录比对触发重建。
-     */
+    private data class Plan(val root: Uri, val treeDocId: String, val mtime: Map<String, Long>)
+    private data class Built(val result: ScanResult, val ticket: TagCatalogSnapshot, val tags: OptionalTags)
+
     suspend fun scan(
         rootUriString: String,
         onProgress: (Progress) -> Unit = {},
-    ): ScanResult = withContext(Dispatchers.IO) {
+    ): ScanResult = index.scan(
+        rootUriString,
+        preflight = { withContext(Dispatchers.IO) { preflight(rootUriString) } },
+        core = { plan, rebuild -> withContext(Dispatchers.IO) { build(plan, rebuild, onProgress) } },
+        beforeCommit = { settings.publishTagSnapshot(it.ticket, it.tags) },
+    ).result
+
+    private fun preflight(rootUriString: String): Plan {
         val rootUri = Uri.parse(rootUriString)
         val treeDocId = DocumentsContract.getTreeDocumentId(rootUri)
         // 直接拼接原始 documentId：buildDocumentUriUsingTree 内部用 appendPath，
@@ -68,32 +71,23 @@ class EagleScanner(
             throw ScannerException("无法读取 mtime.json，请确认选择的是 Eagle 导出的 .library 根目录")
         }
         val mtime = try {
-            parseMtimeJson(mtimeText)
+            validatedScanMtime(mtimeText)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw ScannerException("mtime.json 解析失败：文件可能正在同步写入，请稍后重试")
+            throw ScannerException("mtime.json 为空或解析失败：文件可能正在同步写入，请稍后重试")
         }
-        // 防御：mtime.json 内容合法但为空（同步工具中间态/文件残缺）时，
-        // diff 会把全库当作待删除，直接拒绝扫描
-        if (mtime.isEmpty()) {
-            throw ScannerException("mtime.json 内容为空或格式异常，请等待同步完成后重试")
-        }
+        return Plan(rootUri, treeDocId, mtime)
+    }
 
-        // Full SAF URI (authority included), independently of the existing indexedRoot rule.
-        // Invalidate optional data before any Room mutation; a cancelled switch cannot leak it.
-        val optionalTicket = settings.beginTagSnapshot(rootUriString)
+    private suspend fun build(plan: Plan, rebuild: Boolean, onProgress: (Progress) -> Unit): Built {
+        fun docUri(path: String): Uri = DocumentsContract.buildDocumentUriUsingTree(plan.root, "${plan.treeDocId}/$path")
+        val mtime = plan.mtime
+        val optionalTicket = settings.beginTagSnapshot(plan.root.toString())
         val optionalTags = readOptionalTags(::docUri)
         currentCoroutineContext().ensureActive()
         val dao = db.itemDao()
-        if (settings.indexedRoot.first() != treeDocId) {
-            // mtime.json 校验通过后才清空（读 mtime 失败时保持旧索引不动）。
-            // 新根目录必须在清空的同一时机持久化，而不是扫描成功后：若扫描中途进程被杀，
-            // 索引里已经写入了新根目录的部分 URI，存储值必须与之一致——否则之后扫描
-            // 同内容旧库时 diff 看不出变化，新旧混杂的 URI 会永久残留
-            dao.clearAll()
-            settings.setIndexedRoot(treeDocId)
-        }
+        if (rebuild) dao.clearAll()
         val indexed = dao.allModified().associate { it.id to it.lastModified }
         val diff = ScanDiffer.diff(indexed, mtime)
 
@@ -209,8 +203,7 @@ class EagleScanner(
             missing = missing,
         )
         currentCoroutineContext().ensureActive()
-        settings.publishTagSnapshot(optionalTicket, optionalTags)
-        result
+        return Built(result, optionalTicket, optionalTags)
     }
 
     /** Read independently on every scan, including an empty item diff. No Eagle writes. */

@@ -32,6 +32,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +48,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.eagleviewer.app.data.db.ItemWithTags
+import com.eagleviewer.app.data.DetailNavigation
+import com.eagleviewer.app.data.DetailNavigationTicket
 
 /**
  * 大图查看：HorizontalPager 左右切换（与网格的筛选结果集一致），
@@ -55,10 +59,22 @@ import com.eagleviewer.app.data.db.ItemWithTags
 fun DetailScreen(
     vm: GridViewModel,
     startIndex: Int,
+    expectedTicket: DetailNavigationTicket?,
     onBack: () -> Unit,
     onFindSimilar: (Int) -> Unit,
 ) {
-    val items = vm.pagingData.collectAsLazyPagingItems()
+    val publication by vm.publication.collectAsState()
+    val session by vm.pagingSession.collectAsState()
+    if (!DetailNavigation.admits(expectedTicket, publication)) {
+        LaunchedEffect(Unit) { onBack() }
+        Box(Modifier.fillMaxSize().background(Color.Black))
+        return
+    }
+    if (session.publication != publication) {
+        Box(Modifier.fillMaxSize().background(Color.Black))
+        return
+    }
+    val items = session.data.collectAsLazyPagingItems()
     var showInfo by remember { mutableStateOf(false) }
 
     // 信息面板展开时返回键先关面板，再退出详情页

@@ -3,6 +3,7 @@ package com.eagleviewer.app
 import android.app.Application
 import android.content.Context
 import android.os.Build
+import kotlinx.coroutines.launch
 import coil.Coil
 import coil.ImageLoader
 import coil.decode.GifDecoder
@@ -16,7 +17,13 @@ import com.eagleviewer.app.data.db.AppDatabase
 class AppContainer(context: Context) {
     val db: AppDatabase = AppDatabase.get(context)
     val settings: SettingsRepository = SettingsRepository(context)
-    val scanner: EagleScanner = EagleScanner(context, db, settings)
+    val index = com.eagleviewer.app.data.IndexCoordinator(settings)
+    private val indexScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+    // Navigation must not reject a valid restored ticket before durable identity has loaded.
+    val navigationIndex = com.eagleviewer.app.data.NavigationIndexInitialization()
+    init { initializeIndex() }
+    fun initializeIndex() { indexScope.launch { navigationIndex.load { index.initialize() } } }
+    val scanner: EagleScanner = EagleScanner(context, db, settings, index)
     val items: ItemRepository = ItemRepository(db)
     val localPalettes = com.eagleviewer.app.data.LocalPaletteResolver(
         com.eagleviewer.app.data.SafPaletteCapture(context.applicationContext),

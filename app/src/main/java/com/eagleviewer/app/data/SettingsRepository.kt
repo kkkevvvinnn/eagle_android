@@ -10,12 +10,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
 
 /** 持久化图库根目录（SAF tree URI 字符串）、多图库列表、上次扫描时间、筛选状态与网格列数。 */
-class SettingsRepository(private val context: Context) {
+class SettingsRepository(private val context: Context) : IndexPublicationStore {
 
     private val keyLibraryUri = stringPreferencesKey("library_uri")
     private val keyLibraries = stringPreferencesKey("libraries_json")
@@ -23,7 +24,7 @@ class SettingsRepository(private val context: Context) {
     private val keyFilterJson = stringPreferencesKey("filter_json")
     private val keyColumnCount = intPreferencesKey("column_count")
     private val keyThemeMode = intPreferencesKey("theme_mode")
-    private val keyIndexedRoot = stringPreferencesKey("indexed_root")
+    private val keyPublication = stringPreferencesKey("index_publication_v1")
 
     private val keyTagSnapshot = stringPreferencesKey("tag_catalog_snapshot_v1")
 
@@ -54,7 +55,23 @@ class SettingsRepository(private val context: Context) {
         if (value.isEmpty()) TagCatalogSnapshot()
         else runCatching { Json.decodeFromString<TagCatalogSnapshot>(value) }.getOrDefault(TagCatalogSnapshot())
 
-    val libraryUri: Flow<String> = context.dataStore.data.map { it[keyLibraryUri] ?: "" }
+    private fun publication(prefs: androidx.datastore.preferences.core.Preferences): IndexPublication =
+        prefs[keyPublication]?.let { value ->
+            runCatching { Json.decodeFromString<IndexPublication>(value) }.getOrNull()
+        } ?: IndexPublication(activeUri = prefs[keyLibraryUri] ?: "")
+
+    override suspend fun readPublication(): IndexPublication = publication(context.dataStore.data.first())
+
+    override suspend fun writePublication(value: IndexPublication) {
+        context.dataStore.edit { prefs ->
+            prefs[keyPublication] = Json.encodeToString(value)
+            // Compatibility keys change in this same atomic edit, never independently.
+            prefs[keyLibraryUri] = value.activeUri
+            prefs[keyLastScan] = value.scanTime
+        }
+    }
+
+    val libraryUri: Flow<String> = context.dataStore.data.map { publication(it).activeUri }
 
     /** 已添加的图库 URI 列表；兼容旧版：列表为空但已设当前目录时迁移为单元素列表。 */
     val libraries: Flow<List<String>> = context.dataStore.data.map { prefs ->
@@ -63,10 +80,8 @@ class SettingsRepository(private val context: Context) {
         if (stored.isEmpty() && active.isNotEmpty()) listOf(active) else stored
     }
 
-    val lastScanTime: Flow<Long> = context.dataStore.data.map { it[keyLastScan] ?: 0L }
+    val lastScanTime: Flow<Long> = context.dataStore.data.map { publication(it).scanTime }
 
-    /** 当前索引对应的图库根目录（tree documentId）。空串 = 索引未绑定根目录或从未扫描。 */
-    val indexedRoot: Flow<String> = context.dataStore.data.map { it[keyIndexedRoot] ?: "" }
 
     /** 序列化后的 Filter，空串表示未保存过。 */
     val filterJson: Flow<String> = context.dataStore.data.map { it[keyFilterJson] ?: "" }
@@ -77,9 +92,6 @@ class SettingsRepository(private val context: Context) {
     /** 主题模式：0 = 跟随系统（默认），1 = 深色，2 = 浅色。 */
     val themeMode: Flow<Int> = context.dataStore.data.map { it[keyThemeMode] ?: 0 }
 
-    suspend fun setLibraryUri(uri: String) {
-        context.dataStore.edit { it[keyLibraryUri] = uri }
-    }
 
     suspend fun addLibrary(uri: String) {
         context.dataStore.edit { prefs ->
@@ -95,13 +107,6 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setLastScanTime(time: Long) {
-        context.dataStore.edit { it[keyLastScan] = time }
-    }
-
-    suspend fun setIndexedRoot(treeDocId: String) {
-        context.dataStore.edit { it[keyIndexedRoot] = treeDocId }
-    }
 
     suspend fun setFilterJson(json: String) {
         context.dataStore.edit { it[keyFilterJson] = json }

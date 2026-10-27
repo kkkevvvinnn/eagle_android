@@ -10,7 +10,7 @@ import kotlinx.coroutines.ensureActive
 /** Full URI + monotonic generation: A->B->A cannot admit A's first result. */
 data class ColorTicket(val root:String, val generation:Long, val ready:Boolean)
 class ColorPublicationGate {
-    var current=ColorTicket("",0,true); private set
+    var current=ColorTicket("",0,false); private set
     @Synchronized fun begin(root:String):ColorTicket {
         current=ColorTicket(root,current.generation+1,false); return current
     }
@@ -26,7 +26,7 @@ class ColorPublicationGate {
 data class ColorProjection(val ticket:ColorTicket,val rows:List<ItemWithTags>,val counts:List<TagCount>) {
     /** Publication/replay guard also checks full live URI, not just a cold Flow subscription. */
     fun isCurrent(live:ColorTicket,root:String):Boolean = ticket.ready && ticket.root==root &&
-        (if(live.generation==0L) ticket.generation==0L else ticket==live)
+        ticket==live && live.ready && live.generation>0
     companion object {
         fun empty(ticket:ColorTicket)=ColorProjection(ticket,emptyList(),emptyList())
         suspend fun create(ticket:ColorTicket,input:List<ItemWithTags>,condition:ColorCondition,
