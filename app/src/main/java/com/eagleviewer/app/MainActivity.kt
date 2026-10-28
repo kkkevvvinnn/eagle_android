@@ -31,6 +31,10 @@ import com.eagleviewer.app.ui.LibrarySetupScreen
 import com.eagleviewer.app.ui.SettingsScreen
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        (application as EagleApp).container.foregroundIndex()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

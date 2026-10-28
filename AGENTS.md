@@ -22,7 +22,7 @@
 ```bash
 ./gradlew :app:assembleDebug      # debug APK
 ./gradlew :app:assembleRelease    # release APK（本地无签名环境变量时回退 debug 签名）
-./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，94 项，必须全绿才能提交）
+./gradlew :app:testDebugUnitTest  # 单元测试（纯 JVM，105 项，必须全绿才能提交）
 ./gradlew :app:installDebug       # 安装到已连接 adb 设备
 ```
 
@@ -147,6 +147,8 @@ xxx.library/
     （结构化并发，取消不能被报成"扫描失败"）。
 11. **索引身份是完整SAF tree URI，包含authority**：不能仅比较tree documentId。不同完整URI、legacy active/docId-only、building、identity mismatch均在有效mtime之后clear全量重建；即使恢复目标与当前active相同，也不能走旧diff。旧1.7.3路径事故说明只靠ID/mtime不足，后续发现不同authority但相同docId也会保留旧URI。升级旧索引及中断扫描后，启动必须遮住结果，提供同库重新扫描恢复；不得用active URI补造可信generation0。
 
+12. **只读 pending 门禁（1.11.2）**：启动发布既有ready前、每次Activity onResume同步遮蔽后及扫描预检/最终提交前，检查完整SAF root的持久读权限、根目录与保留控制名字。`kevin-writeback-v1.json`/`kevin-writeback-v1`任意类型和ASCII大小写变体均阻止；仅archive不阻止，不打开/删除标记。平台dataDir/filesDir可信锚确认后，只读检查files/manual-private-v1；除普通.lock外任何记录均保守阻止，已完成记录恢复尚未接线。前台检查串号阻止排队检查前扫描抢先显示ready；失败/取消锁存隐藏，仅后续显式安全全量重扫可恢复。私有记录恢复、writer入口和自动修复均未开放；此检查不是CAS，外部写入端仍需手动停止并确认同步完成。持久阻止是best effort，失败后进程内继续隐藏，冷启动重新检查。真实设备独立probe验证SAF/私有文件/协调器拒绝路径；不冒充正式DataStore/Room/Compose生命周期证明。
+
 ### 5.2 SQL 与分页（ItemDao / ItemRepository）
 
 1. **删除、分享等分批操作的 IN 列表必须分批（`SQL_BATCH = 400`）**：Android 8–11 的 SQLite 变量上限是 999
@@ -220,6 +222,8 @@ xxx.library/
 
 5. **筛选持久化须用 FilterPersistence**：旧非空 JSON 缺 andMode 按旧默认 ALL 恢复，显式 true/false 原样保留；无保存/新筛选默认 ANY，新保存始终写出 andMode。不得直接借新 Filter 默认值解释旧省略字段。原 touched 恢复门禁保持。
 
+6. **前台核验的详情等待**：同一有效完整root/activeUri/epoch暂不可读时保留详情路由，显示无图等待页并允许返回，不收集paging/images/actions；只有原admits仍成立才允许READY，真实身份/epoch变化或无效票据退出。当前页以路由rememberSaveable保存，pager变更和dispose时捕获；WAIT后恢复最近观看页而非最初点击位置。Compose实际生命周期/缩放状态仍未实测，不能宣称全状态恢复。
+
 ### 5.7 分组、频率及双计数只读投影
 
 1. 每次合法 `mtime.json` 校验后的扫描都读取根 `metadata.json` 与可选 `kevin-tag-history.json`，即使 item diff 为空。各文件 streaming 最多8MiB、UTF8严格解码，重复JSON键及孤立代理拒绝；分组只验证过 Eagle4.0.0。两份文件分别失败降级，不清空图片索引、不伪造时间、不创建或重写任何图库文件。
@@ -251,6 +255,7 @@ xxx.library/
 
 纯 JVM 单测在 `app/src/test/java/com/eagleviewer/app/data/`：
 - `EagleItemMetaTest`：真实样本解析 + mtime 容错
+- `ReadonlyPendingGateTest`：9项只读门禁/私有锚点/前台并发失败取消保护测试；不是实际Compose生命周期证明
 - `ScanDifferTest`：diff 逻辑
 - `DetailNavigationTest`：7项生产codec/准入/加载状态测试，含延迟打开、ABA、同身份saved token/冷加载模型、坏票据及初始化失败/取消/重试；不等同实际Android恢复
 - `IndexPublicationTest`：生产协调器及mtime/分页门禁；15项方法含40个core失败/取消组合，覆盖legacy/authority碰撞、持久block前后、同根恢复、restart模型、晚页/ABA、selection与分享锁及最终提交取消；fakeStore/core不是Android instrumentation

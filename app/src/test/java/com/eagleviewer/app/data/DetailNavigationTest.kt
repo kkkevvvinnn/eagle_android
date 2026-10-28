@@ -65,6 +65,24 @@ class DetailNavigationTest {
         assertNull(DetailNavigation.capture(IndexPublication(activeUri = a)))
         assertNull(DetailNavigation.capture(ready().copy(ready = false)))
     }
+    @Test fun `same identity temporarily unreadable waits and becomes ready again`() {
+        val ticket = DetailNavigationTicket(a, 41)
+        assertEquals(DetailDisposition.READY, DetailNavigation.disposition(ticket, ready()))
+        assertEquals(DetailDisposition.WAIT, DetailNavigation.disposition(ticket, ready().copy(ready = false)))
+        assertFalse(DetailNavigation.admits(ticket, ready().copy(ready = false)))
+        assertEquals(DetailDisposition.READY, DetailNavigation.disposition(ticket, ready()))
+    }
+    @Test fun `invalid or changed identity exits even when unreadable`() {
+        val ticket = DetailNavigationTicket(a, 41)
+        val waiting = ready().copy(ready = false)
+        for (state in listOf(waiting.copy(activeUri = b), waiting.copy(root = b),
+            waiting.copy(epoch = 42), waiting.copy(epoch = 0), IndexPublication(activeUri = a), ready(b), ready(epoch = 42))) {
+            assertEquals(DetailDisposition.EXIT, DetailNavigation.disposition(ticket, state))
+        }
+        for (bad in listOf(null, DetailNavigationTicket("", 41), DetailNavigationTicket(a, 0), DetailNavigationTicket(a, -1))) {
+            assertEquals(DetailDisposition.EXIT, DetailNavigation.disposition(bad, waiting))
+        }
+    }
     @Test fun `legacy missing malformed and untrusted tickets fail closed`() {
         assertEquals("detail/{index}", DetailNavigation.LEGACY_ROUTE)
         assertFalse(DetailNavigation.admits(null, ready()))

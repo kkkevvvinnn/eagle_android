@@ -17,12 +17,20 @@ import com.eagleviewer.app.data.db.AppDatabase
 class AppContainer(context: Context) {
     val db: AppDatabase = AppDatabase.get(context)
     val settings: SettingsRepository = SettingsRepository(context)
-    val index = com.eagleviewer.app.data.IndexCoordinator(settings)
+    val index = com.eagleviewer.app.data.IndexCoordinator(settings, com.eagleviewer.app.data.AndroidReadonlyPendingGate(context.applicationContext, com.eagleviewer.app.data.PrivatePendingProbe(context.dataDir, context.filesDir)))
     private val indexScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
     // Navigation must not reject a valid restored ticket before durable identity has loaded.
     val navigationIndex = com.eagleviewer.app.data.NavigationIndexInitialization()
     init { initializeIndex() }
     fun initializeIndex() { indexScope.launch { navigationIndex.load { index.initialize() } } }
+    fun foregroundIndex() {
+        val observation = index.suspendVisibility()
+        indexScope.launch {
+            try { index.foregroundCheck(observation) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { /* coordinator keeps the index blocked */ }
+        }
+    }
     val scanner: EagleScanner = EagleScanner(context, db, settings, index)
     val items: ItemRepository = ItemRepository(db)
     val localPalettes = com.eagleviewer.app.data.LocalPaletteResolver(

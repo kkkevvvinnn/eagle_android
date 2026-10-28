@@ -31,10 +31,17 @@ interface IndexPublicationStore {
 /**
  * All index writers and selection reads share this lock. Preflight is read-only. A durable
  * building record precedes the first Room mutation; interrupted building always rebuilds.
- * The final snapshot is the last suspend operation, committing active/ready/time together.
+ * Successful publication commits active/ready/time together; a concurrently revoked scan
+ * attempts a subsequent durable block and stays hidden even if that write fails.
  */
-class IndexCoordinator(private val store: IndexPublicationStore) {
+class IndexCoordinator(private val store: IndexPublicationStore, private val pending: ReadonlyPendingGate = ReadonlyPendingGate { }) {
+    @Volatile private var failedClosed = false
     private val mutex = Mutex()
+    private var failureVersion = 0L
+    @Synchronized private fun markFailure() { failedClosed = true; failureVersion = Math.addExact(failureVersion, 1) }
+    @Synchronized private fun failureSerial() = failureVersion
+    private var foregroundVersion = 0L
+    private var foregroundPending = false
     private val live = MutableStateFlow(IndexPublication())
     val publication: StateFlow<IndexPublication> = live
     private val blockedListeners = java.util.concurrent.CopyOnWriteArraySet<() -> Unit>()
@@ -60,13 +67,84 @@ class IndexCoordinator(private val store: IndexPublicationStore) {
         return guarded
     }
 
-    suspend fun initialize() = mutex.withLock { publish(store.readPublication()) }
+    private suspend fun checked(root: String, basis: IndexPublication = live.value) {
+        try { pending.check(root); currentCoroutineContext().ensureActive() }
+        catch (failure: Throwable) {
+            markFailure()
+            val blocked = basis.copy(ready = false)
+            publish(blocked)
+            // The await may have committed despite throwing; keep the in-memory latch either way.
+            withContext(NonCancellable) { runCatching { store.writePublication(blocked) } }
+            throw failure
+        }
+    }
+    suspend fun initialize() = mutex.withLock {
+        publish(live.value.copy(ready = false))
+        val saved = try { store.readPublication() } catch (failure: Throwable) { markFailure(); throw failure }
+        if (saved.readable && !failedClosed) {
+            // Set identity while still blocked, so a failed check persists the right root/epoch.
+            publish(saved.copy(ready = false))
+            checked(saved.root)
+            publishUnlessForegroundPending(saved)
+        } else publish(saved.copy(ready = false))
+    }
+
+    /** The serial is changed under the same monitor that gates every ready publication. */
+    @Synchronized fun suspendVisibility(): Long {
+        foregroundVersion = Math.addExact(foregroundVersion, 1)
+        foregroundPending = true
+        publish(live.value.copy(ready = false))
+        return foregroundVersion
+    }
+    @Synchronized private fun publishUnlessForegroundPending(value: IndexPublication) {
+        publish(if (foregroundPending || failedClosed) value.copy(ready = false) else value)
+    }
+    @Synchronized private fun isLatestForeground(serial: Long) = serial == foregroundVersion
+    @Synchronized private fun finishForeground(serial: Long, ready: IndexPublication?) {
+        if (serial != foregroundVersion) return
+        foregroundPending = false
+        if (ready != null && !failedClosed) publish(ready)
+    }
+    @Synchronized private fun failForeground(serial: Long) {
+        markFailure()
+        if (serial == foregroundVersion) foregroundPending = false
+        publish(live.value.copy(ready = false))
+    }
+    suspend fun foregroundCheck(serial: Long) {
+        try {
+            mutex.withLock {
+                if (!isLatestForeground(serial)) return@withLock
+                try {
+                    val saved = store.readPublication()
+                    if (saved.readable && !failedClosed) {
+                        publish(saved.copy(ready = false))
+                        checked(saved.root)
+                        finishForeground(serial, saved)
+                    } else finishForeground(serial, null)
+                } catch (failure: Throwable) {
+                    markFailure()
+                    finishForeground(serial, null)
+                    throw failure
+                }
+            }
+        } catch (failure: Throwable) {
+            // Even cancellation while waiting revokes a concurrent scan publication.
+            failForeground(serial)
+            throw failure
+        }
+    }
 
     fun accepts(value: IndexPublication): Boolean = value.readable && live.value == value
 
     /** Selection mutation and a synchronous block callback cannot cross each other. */
     @Synchronized fun ifCurrent(value: IndexPublication, action: () -> Unit) {
         if (accepts(value)) action()
+    }
+
+    @Synchronized private fun publishScanCompleted(value: IndexPublication, started: Long): Boolean {
+        if (failureVersion == started) failedClosed = false
+        publish(if (foregroundPending || failedClosed) value.copy(ready = false) else value)
+        return failedClosed
     }
 
     suspend fun <P, R> scan(
@@ -76,8 +154,15 @@ class IndexCoordinator(private val store: IndexPublicationStore) {
         beforeCommit: suspend (R) -> Unit = {},
         now: () -> Long = System::currentTimeMillis,
     ): R = mutex.withLock {
-        val previous = store.readPublication()
-        if (live.value != previous) publish(previous)
+        val scanFailureSerial = failureSerial()
+        val previous = try { store.readPublication() } catch (failure: Throwable) {
+            markFailure()
+            val blocked = live.value.copy(ready = false)
+            publish(blocked)
+            withContext(NonCancellable) { runCatching { store.writePublication(blocked) } }
+            throw failure
+        }
+        checked(root, previous)
         val plan = preflight() // invalid/empty mtime cannot alter publication or Room
         val building = previous.copy(root = root, epoch = Math.addExact(previous.epoch, 1), ready = false)
         try {
@@ -89,15 +174,19 @@ class IndexCoordinator(private val store: IndexPublicationStore) {
             throw failure
         }
         publish(building)
-        val result = core(plan, !previous.readable || previous.root != root)
+        val result = core(plan, failedClosed || !previous.readable || previous.root != root)
         beforeCommit(result) // optional snapshot failures must precede ready
+        checked(root)
         currentCoroutineContext().ensureActive()
         val completed = building.copy(activeUri = root, ready = true, scanTime = now())
         // Cancellation cannot split the final successful store return from live publication.
         // No scanner/VM settings writes are allowed after this commit.
         withContext(NonCancellable) {
             store.writePublication(completed)
-            publish(completed)
+            if (publishScanCompleted(completed, scanFailureSerial)) {
+                // A concurrent cancelled foreground revoked this scan; best-effort durable block.
+                runCatching { store.writePublication(completed.copy(ready = false)) }
+            }
         }
         result
     }

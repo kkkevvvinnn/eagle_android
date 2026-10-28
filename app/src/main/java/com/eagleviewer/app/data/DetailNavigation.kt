@@ -10,6 +10,8 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class DetailNavigationTicket(val root: String, val epoch: Long)
 
+enum class DetailDisposition { READY, WAIT, EXIT }
+
 object DetailNavigation {
     // Keep the old destination registered so an index-only saved back stack can exit safely.
     const val LEGACY_ROUTE = "detail/{index}"
@@ -44,6 +46,14 @@ object DetailNavigation {
 
     fun admits(ticket: DetailNavigationTicket?, publication: IndexPublication): Boolean =
         ticket != null && publication.readable && ticket.root == publication.root && ticket.epoch == publication.epoch
+
+    fun disposition(ticket: DetailNavigationTicket?, publication: IndexPublication): DetailDisposition = when {
+        admits(ticket, publication) -> DetailDisposition.READY
+        ticket != null && ticket.root.isNotEmpty() && ticket.epoch > 0 &&
+            !publication.readable && ticket.root == publication.root &&
+            ticket.root == publication.activeUri && ticket.epoch == publication.epoch -> DetailDisposition.WAIT
+        else -> DetailDisposition.EXIT
+    }
 }
 
 /** Navigation waits for a verified durable load; an IO failure exposes a retry, not a spinner. */

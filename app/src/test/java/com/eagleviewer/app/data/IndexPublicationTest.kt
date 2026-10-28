@@ -104,12 +104,12 @@ class IndexPublicationTest {
         }
         assertEquals(mapOf("x" to 100L), validatedScanMtime("{\"all\":1,\"x\":100,\"bad\":null}"))
     }
-    @Test fun `durable read failure cannot touch rows or replace an existing publication`() = runBlocking {
+    @Test fun `durable read failure hides existing publication without touching rows`() = runBlocking {
         val store = Store(ready()); val index = IndexCoordinator(store); index.initialize()
         val old = index.publication.value
         store.beforeRead = { throw IOException("read") }
         assertTrue(runCatching { index.scan(b, { fail("preflight") }, { _, _ -> fail("Room") }) }.isFailure)
-        assertEquals(old, index.publication.value); assertEquals(0, store.writes)
+        assertEquals(old.copy(ready = false), index.publication.value); assertEquals(1, store.writes)
     }
     @Test fun `every mutation await failure or cancellation stays blocked and retry rebuilds`() = runBlocking {
         val boundaries = listOf("before-clear", "after-clear", "before-batch-0", "after-batch-0", "before-batch-1", "after-batch-1", "core-complete", "optional-snapshot", "scan-time", "final-commit")

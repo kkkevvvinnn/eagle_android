@@ -30,10 +30,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +54,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.eagleviewer.app.data.db.ItemWithTags
 import com.eagleviewer.app.data.DetailNavigation
+import com.eagleviewer.app.data.DetailDisposition
 import com.eagleviewer.app.data.DetailNavigationTicket
 
 /**
@@ -63,13 +69,31 @@ fun DetailScreen(
     onBack: () -> Unit,
     onFindSimilar: (Int) -> Unit,
 ) {
-    val publication by vm.publication.collectAsState()
-    val session by vm.pagingSession.collectAsState()
-    if (!DetailNavigation.admits(expectedTicket, publication)) {
-        LaunchedEffect(Unit) { onBack() }
-        Box(Modifier.fillMaxSize().background(Color.Black))
-        return
+    // The pager leaves composition while the library is checked. Keep its last viewed page
+    // at route scope so resuming does not return to the originally clicked item.
+    var savedPage by rememberSaveable(expectedTicket?.root, expectedTicket?.epoch, startIndex) {
+        mutableIntStateOf(startIndex.coerceAtLeast(0))
     }
+    val publication by vm.publication.collectAsState()
+    when (DetailNavigation.disposition(expectedTicket, publication)) {
+        DetailDisposition.EXIT -> {
+            LaunchedEffect(Unit) { onBack() }
+            Box(Modifier.fillMaxSize().background(Color.Black))
+            return
+        }
+        DetailDisposition.WAIT -> {
+            BackHandler { onBack() }
+            Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("正在检查素材库，暂时无法查看", color = Color.White)
+                    TextButton(onClick = onBack) { Text("返回") }
+                }
+            }
+            return
+        }
+        DetailDisposition.READY -> Unit
+    }
+    val session by vm.pagingSession.collectAsState()
     if (session.publication != publication) {
         Box(Modifier.fillMaxSize().background(Color.Black))
         return
@@ -88,8 +112,14 @@ fun DetailScreen(
         if (items.itemCount == 0) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         } else {
-            val safeStart = startIndex.coerceIn(0, items.itemCount - 1)
+            val safeStart = savedPage.coerceIn(0, items.itemCount - 1)
             val pagerState = rememberPagerState(initialPage = safeStart) { items.itemCount }
+            LaunchedEffect(pagerState) {
+                snapshotFlow { pagerState.currentPage }.collect { savedPage = it }
+            }
+            DisposableEffect(pagerState) {
+                onDispose { savedPage = pagerState.currentPage }
+            }
 
             HorizontalPager(
                 state = pagerState,
