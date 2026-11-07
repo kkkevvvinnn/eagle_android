@@ -206,10 +206,6 @@ private fun FilterSheet(
                     }
                 }
             }
-            if (tagCatalog.status.isNotEmpty()) {
-                Text(tagCatalog.status, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             // One stable scroll owner remains composed even when search has no matches.
             Column(Modifier.heightIn(max = 320.dp).verticalScroll(scrollState)) {
                 if (shownSections.all { it.tags.isEmpty() }) {
