@@ -86,7 +86,7 @@ DataStore ◄── SettingsRepository              Paging3 (placeholders) ─�
 | `data/db/AppDatabase.kt` | Room 单例，`fallbackToDestructiveMigration` |
 | `ui/GridViewModel.kt` | 共享 VM：筛选/分页/列数/多选/扫描状态机/**扫描互斥锁** |
 | `ui/GridScreen.kt` | 瀑布流、顶栏（标题/搜索/多选）、捏合调列数、下拉刷新、分享 |
-| `ui/FilterBar.kt` | 排序菜单、星级筛选、标签 BottomSheet（与/或）、主色筛选 chip |
+| `ui/FilterBar.kt` | 独立排序菜单、统一筛选摘要入口与 BottomSheet（标签优先、评分、折叠主色） |
 | `ui/DetailScreen.kt` | HorizontalPager 大图页 + 信息面板（色卡触发相似配色） |
 | `ui/ZoomableImage.kt` | 缩放手势组件（见 §5.5 契约） |
 | `ui/SettingsScreen.kt` | 多图库管理、重扫、主题切换、关于/版本/版权 |
@@ -186,16 +186,18 @@ xxx.library/
    **不是** 重置选择集。分享走 `ACTION_SEND_MULTIPLE` + `FLAG_GRANT_READ_URI_PERMISSION` + clipData，
    全程 runCatching（binder 超限/查询失败 → Snackbar）。
 
-### 5.4 标签弹层（FilterBar.TagSheet）
+### 5.4 筛选弹层（FilterBar.FilterSheet）
 
 1. `rememberModalBottomSheetState(skipPartiallyExpanded = true)`：部分展开锚点会在内容高度
    变化时重新停靠滑动（视觉=滚动重置回顶部）。
-2. 头部行固定 `heightIn(min = 48.dp)`：「清除」「与/或」按钮出现/消失不改变 sheet 高度。
-3. 分组标签区自持有 `rememberScrollState()` + `heightIn(max = 400.dp)`：点选标签重组后保持滚动位置。
+2. 头部行固定 `heightIn(min = 48.dp)`，提供「清除全部」「完成」；清除全部保留排序与标签匹配模式，清空标签/未标记/评分/主色/搜索。与/或在标签操作行显示。
+3. 分组标签区自持有 `rememberScrollState()` + `heightIn(max = 320.dp)`：点选标签重组后保持滚动位置。
 4. 标签与未标记仍互斥；主色与标签/未标记/评分/搜索相交。选标签或未标记保留颜色，详情色卡设自选主色并保留其它条件。清颜色只清颜色。
 5. 与/或切换仅在选中 ≥2 个标签时显示。
 6. 显示分组与未分组，组仅整理展示；保留源分组冲突并提示，不擅自挑选归属。始终可搜索；零结果时仍可选择、清除条件，目录外已选标签可单独移除。双计数为完整当前结果中的标签覆盖数／全部已索引非回收站覆盖数，不以当前页面已加载数代替。
 7. 标签组内按近30天 Mac 新增关联数降序，再按全库索引覆盖数降序、unsigned UTF8字节升序；不trim、normalize或用Kotlin UTF16默认顺序代替。history-only不生成目录标签，合法group-only可显示0。
+
+8. 工具栏仅显示一个筛选入口，摘要按标签、未标记、评分、主色、搜索排列；无条件显示「筛选」，长摘要省略，排序始终独立可见。弹层标签优先，保留独立滚动及双计数；评分在后，主色默认折叠。删除静态计数/排序/算法说明，保留实际异常状态。评分触控48dp。
 
 ### 5.5 大图（DetailScreen + ZoomableImage）
 

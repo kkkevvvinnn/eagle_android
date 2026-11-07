@@ -1,7 +1,6 @@
 package com.eagleviewer.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
@@ -51,75 +51,39 @@ import com.eagleviewer.app.data.TagCatalog
 import com.eagleviewer.app.data.TagSection
 import com.eagleviewer.app.data.CatalogTag
 
-/**
- * 网格页顶部的筛选栏：排序、评分下限、标签多选（与/或）。
- */
+/** 单一筛选入口与独立排序。筛选摘要优先展示标签名。 */
 @Composable
 fun FilterBar(
     filter: Filter,
     tagCatalog: TagCatalog,
     onFilterChange: ((Filter) -> Filter) -> Unit,
 ) {
-    var showTagSheet by remember { mutableStateOf(false) }
-    var showColorSheet by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val summary = buildList {
+        if (filter.tags.isNotEmpty()) add(filter.tags.joinToString(if (filter.andMode) " & " else " | "))
+        if (filter.untaggedOnly) add("未标记")
+        if (filter.minStar > 0) add("≥${filter.minStar}星")
+        filter.effectiveColor?.let { add(it.common?.label ?: "#%06X".format(it.rgb.argb and 0xffffff)) }
+        if (filter.nameQuery.isNotBlank()) add("搜索：${filter.nameQuery}")
+    }.joinToString(" · ").ifEmpty { "筛选" }
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         FilterChip(
-            selected=filter.effectiveColor!=null,
-            onClick={ showColorSheet=true },
-            label={ Text(if(filter.effectiveColor==null) "主色" else "主色 ≥15%") },
-            leadingIcon={ filter.effectiveColor?.let { Box(Modifier.size(14.dp).clip(CircleShape).background(Color(it.rgb.argb))) } },
+            selected = filter.isActive,
+            onClick = { showFilterSheet = true },
+            modifier = Modifier.weight(1f),
+            leadingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            label = { Text(summary, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         )
-        Spacer(Modifier.width(6.dp))
-        if (filter.untaggedOnly) {
-            FilterChip(
-                selected = true,
-                onClick = { onFilterChange { it.copy(untaggedOnly = false) } },
-                label = { Text("未标记") },
-            )
-            Spacer(Modifier.width(6.dp))
-        }
-        FilterChip(
-            selected = filter.tags.isNotEmpty(),
-            onClick = { showTagSheet = true },
-            label = {
-                // 显示真实标签名（与=&，或=|），而非「标签(N)」
-                Text(
-                    if (filter.tags.isEmpty()) "标签"
-                    else filter.tags.joinToString(if (filter.andMode) " & " else " | "),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
-        )
-        if (filter.tags.size >= 2) {
-            Spacer(Modifier.width(6.dp))
-            FilterChip(
-                selected = true,
-                onClick = { onFilterChange { it.copy(andMode = !it.andMode) } },
-                label = { Text(if (filter.andMode) "与" else "或") },
-            )
-        }
-        Spacer(Modifier.width(6.dp))
-        StarFilter(filter.minStar, onChange = { star -> onFilterChange { it.copy(minStar = star) } })
         Spacer(Modifier.width(6.dp))
         SortMenu(filter.sort, onSortChange = { s -> onFilterChange { it.copy(sort = s) } })
     }
 
-    if (showColorSheet) ColorSheet(filter,onFilterChange) { showColorSheet=false }
-    if (showTagSheet) {
-        TagSheet(
-            filter = filter,
-            tagCatalog = tagCatalog,
-            onFilterChange = onFilterChange,
-            onDismiss = { showTagSheet = false },
-        )
+    if (showFilterSheet) {
+        FilterSheet(filter, tagCatalog, onFilterChange, onDismiss = { showFilterSheet = false })
     }
 }
 
@@ -151,10 +115,10 @@ private fun SortMenu(current: Sort, onSortChange: (Sort) -> Unit) {
 private fun StarFilter(minStar: Int, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         for (i in 1..5) {
-            IconButton(onClick = { onChange(if (minStar == i) 0 else i) }, modifier = Modifier.size(30.dp)) {
+            IconButton(onClick = { onChange(if (minStar == i) 0 else i) }, modifier = Modifier.size(48.dp)) {
                 Icon(
                     imageVector = if (i <= minStar) Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = "$i 星",
+                    contentDescription = "至少 $i 星",
                     tint = if (i <= minStar) Color(0xFFFFB74D) else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(20.dp),
                 )
@@ -165,13 +129,14 @@ private fun StarFilter(minStar: Int, onChange: (Int) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun TagSheet(
+private fun FilterSheet(
     filter: Filter,
     tagCatalog: TagCatalog,
     onFilterChange: ((Filter) -> Filter) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var tagQuery by remember { mutableStateOf("") }
+    var colorExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val shownSections = remember(tagCatalog, tagQuery, filter.tags) {
         val known = tagCatalog.sections.flatMap { it.tags }.map { it.tag }.toSet()
@@ -179,7 +144,7 @@ private fun TagSheet(
             section.copy(tags = section.tags.filter { it.tag.contains(tagQuery.trim(), ignoreCase = true) })
         }
         val orphans = (filter.tags - known).map { CatalogTag(it, 0, 0, 0) }
-        if (orphans.isEmpty()) sections else listOf(TagSection("已选（目录外，可移除）", orphans)) + sections
+        if (orphans.isEmpty()) sections else listOf(TagSection("已选（目录外）", orphans)) + sections
     }
     // 跳过部分展开态：否则「清除」按钮出现/消失导致内容高度变化时，
     // sheet 会重新停靠并滑动，视觉上像滚动位置被重置回顶部
@@ -187,38 +152,20 @@ private fun TagSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            // 固定最小高度：「清除」「与/或」出现/消失不改变行高，sheet 高度保持稳定
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
-                Text("按标签筛选", style = MaterialTheme.typography.titleMedium)
+                Text("筛选", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
-                // 与/或切换：仅在选中 2 个及以上标签时出现
-                if (filter.tags.size >= 2) {
-                    Text("多标签", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(6.dp))
-                    FilterChip(
-                        selected = filter.andMode,
-                        onClick = { onFilterChange { it.copy(andMode = true) } },
-                        label = { Text("与") },
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    FilterChip(
-                        selected = !filter.andMode,
-                        onClick = { onFilterChange { it.copy(andMode = false) } },
-                        label = { Text("或") },
-                    )
-                }
-                if (filter.tags.isNotEmpty() || filter.untaggedOnly) {
+                if (filter.isActive) {
                     TextButton(onClick = {
-                        onFilterChange { it.copy(tags = emptySet(), untaggedOnly = false) }
-                    }) {
-                        Text("清除")
-                    }
+                        onFilterChange { Filter(sort = it.sort, andMode = it.andMode) }
+                    }) { Text("清除全部") }
                 }
+                TextButton(onClick = onDismiss) { Text("完成") }
             }
+            Column(Modifier.verticalScroll(rememberScrollState())) {
             // 标签数量多时的搜索框
             run {
                 OutlinedTextField(
@@ -238,29 +185,33 @@ private fun TagSheet(
                     },
                 )
             }
-            // 未标记与标签互斥；主色与其交集
-            FilterChip(
-                selected = filter.untaggedOnly,
-                onClick = {
-                    onFilterChange { f ->
-                        f.copy(untaggedOnly = !f.untaggedOnly, tags = emptySet())
+            // 标签和未标记互斥，保留其他筛选条件。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(
+                    selected = filter.untaggedOnly,
+                    onClick = { onFilterChange { it.copy(untaggedOnly = !it.untaggedOnly, tags = emptySet()) } },
+                    label = { Text("未标记") },
+                )
+                Spacer(Modifier.weight(1f))
+                if (filter.tags.size >= 2) {
+                    FilterChip(selected = filter.andMode,
+                        onClick = { onFilterChange { it.copy(andMode = true) } }, label = { Text("与") })
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(selected = !filter.andMode,
+                        onClick = { onFilterChange { it.copy(andMode = false) } }, label = { Text("或") })
+                }
+                if (filter.tags.isNotEmpty() || filter.untaggedOnly) {
+                    TextButton(onClick = { onFilterChange { it.copy(tags = emptySet(), untaggedOnly = false) } }) {
+                        Text("清除标签")
                     }
-                },
-                label = { Text("未标记（无标签图片）") },
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-            Text("数量：当前完整筛选结果 / 全库已索引非回收站素材",
-                style = MaterialTheme.typography.bodySmall)
-            Text("排序：Mac 近30天新增关联、全库覆盖数、UTF-8 标签顺序",
-                style = MaterialTheme.typography.bodySmall)
-            Text("仅统计本机可浏览索引；缺失原图及仅回收站标签不另行扫描。",
-                style = MaterialTheme.typography.bodySmall)
+                }
+            }
             if (tagCatalog.status.isNotEmpty()) {
                 Text(tagCatalog.status, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // One stable scroll owner remains composed even when search has no matches.
-            Column(Modifier.heightIn(max = 400.dp).verticalScroll(scrollState)) {
+            Column(Modifier.heightIn(max = 320.dp).verticalScroll(scrollState)) {
                 if (shownSections.all { it.tags.isEmpty() }) {
                     Text(if (tagQuery.isEmpty()) "图库中还没有标签" else "没有匹配的标签",
                         modifier = Modifier.padding(vertical = 12.dp))
@@ -289,42 +240,65 @@ private fun TagSheet(
                     }
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("评分", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.weight(1f))
+                StarFilter(filter.minStar, onChange = { star -> onFilterChange { it.copy(minStar = star) } })
+            }
+            TextButton(onClick = { colorExpanded = !colorExpanded }, modifier = Modifier.fillMaxWidth()) {
+                Text("主色" + if (filter.effectiveColor != null) " · 已选" else "")
+                Spacer(Modifier.weight(1f))
+                Text(if (colorExpanded) "收起" else "展开")
+            }
+            if (colorExpanded) ColorControls(filter, onFilterChange)
+            }
         }
     }
 }
 
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ColorSheet(filter:Filter,onChange:((Filter)->Filter)->Unit,onDismiss:()->Unit) {
-    val condition=filter.effectiveColor
-    var hex by remember(condition?.rgb) { mutableStateOf("%06X".format(condition?.rgb?.argb?.and(0xffffff) ?: 0xff0000)) }
-    val parsed=hex.takeIf { it.matches(Regex("[0-9A-Fa-f]{6}")) }?.toIntOrNull(16)
-    ModalBottomSheet(onDismissRequest=onDismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-        Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-            Row(verticalAlignment=Alignment.CenterVertically) {
-                Text("主色筛选",style=MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick={ onChange { it.clearColor() } }) { Text("清除主色") }
-            }
-            Text("匹配色块占比累计 ≥15%；与标签、评分、搜索交集。按当前排序显示全部结果。",style=MaterialTheme.typography.bodySmall)
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                com.eagleviewer.app.data.CommonPaletteColor.entries.forEach { color ->
-                    FilterChip(selected=condition?.common==color,onClick={ onChange { it.copy(similarColor=null,
-                        colorCondition=com.eagleviewer.app.data.ColorCondition(common=color,tolerance=it.effectiveColor?.tolerance?:25.0)) } },
-                        label={ Text(color.label) },leadingIcon={ Box(Modifier.size(14.dp).clip(CircleShape).background(Color(0xff000000.toInt() or color.swatch))) })
-                }
-            }
-            OutlinedTextField(value=hex,onValueChange={ hex=it },label={ Text("自选 sRGB HEX（6位，不含 #）") },singleLine=true,isError=parsed==null)
-            TextButton(enabled=parsed!=null,onClick={ parsed?.let { rgb -> onChange { it.copy(similarColor=null,
-                colorCondition=com.eagleviewer.app.data.ColorCondition(custom=com.eagleviewer.app.data.PaletteRGB.fromInt(rgb),tolerance=it.effectiveColor?.tolerance?:25.0)) } } }) { Text("使用自选色") }
-            if(condition!=null && (condition.custom!=null || condition.common?.hue!=null)) {
-                Text("容差：${condition.tolerance.toInt()}（${if(condition.custom!=null) "ΔE76" else "色相角度"}）")
-                androidx.compose.material3.Slider(value=condition.tolerance.toFloat(),onValueChange={ value ->
-                    onChange { f -> f.copy(similarColor=null,colorCondition=f.effectiveColor?.copy(tolerance=value.toDouble())) }
-                },valueRange=10f..60f,steps=49)
-            }
-            Text("缺少主色信息时会自动分析；暂时无法分析的图片可清除主色后查看。",style=MaterialTheme.typography.bodySmall)
+private fun ColorControls(filter: Filter, onChange: ((Filter) -> Filter) -> Unit) {
+    val condition = filter.effectiveColor
+    var hex by remember(condition?.rgb) {
+        mutableStateOf("%06X".format(condition?.rgb?.argb?.and(0xffffff) ?: 0xff0000))
+    }
+    val parsed = hex.takeIf { it.matches(Regex("[0-9A-Fa-f]{6}")) }?.toIntOrNull(16)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("占比 ≥15%", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.weight(1f))
+        if (condition != null) {
+            TextButton(onClick = { onChange { it.clearColor() } }) { Text("清除主色") }
         }
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.eagleviewer.app.data.CommonPaletteColor.entries.forEach { color ->
+            FilterChip(
+                selected = condition?.common == color,
+                onClick = { onChange { it.copy(similarColor = null,
+                    colorCondition = com.eagleviewer.app.data.ColorCondition(common = color, tolerance = it.effectiveColor?.tolerance ?: 25.0)) } },
+                label = { Text(color.label) },
+                leadingIcon = { Box(Modifier.size(14.dp).clip(CircleShape).background(Color(0xff000000.toInt() or color.swatch))) },
+            )
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = hex, onValueChange = { hex = it }, modifier = Modifier.weight(1f),
+            label = { Text("HEX（6位）") }, prefix = { Text("#") },
+            singleLine = true, isError = parsed == null,
+        )
+        TextButton(enabled = parsed != null, onClick = {
+            parsed?.let { rgb -> onChange { it.copy(similarColor = null,
+                colorCondition = com.eagleviewer.app.data.ColorCondition(custom = com.eagleviewer.app.data.PaletteRGB.fromInt(rgb), tolerance = it.effectiveColor?.tolerance ?: 25.0)) } }
+        }) { Text("使用") }
+    }
+    if (condition != null && (condition.custom != null || condition.common?.hue != null)) {
+        Text("容差 ${condition.tolerance.toInt()}")
+        androidx.compose.material3.Slider(
+            value = condition.tolerance.toFloat(),
+            onValueChange = { value -> onChange { it.copy(similarColor = null, colorCondition = it.effectiveColor?.copy(tolerance = value.toDouble())) } },
+            valueRange = 10f..60f, steps = 49,
+        )
     }
 }
