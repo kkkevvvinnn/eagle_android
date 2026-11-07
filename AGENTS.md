@@ -197,7 +197,7 @@ xxx.library/
 6. 显示分组与未分组，组仅整理展示；保留源分组冲突并提示，不擅自挑选归属。始终可搜索；零结果时仍可选择、清除条件，目录外已选标签可单独移除。双计数为完整当前结果中的标签覆盖数／全部已索引非回收站覆盖数，不以当前页面已加载数代替。
 7. 标签组内按近30天 Mac 新增关联数降序，再按全库索引覆盖数降序、unsigned UTF8字节升序；不trim、normalize或用Kotlin UTF16默认顺序代替。history-only不生成目录标签，合法group-only可显示0。
 
-8. 工具栏仅显示一个筛选入口，摘要按标签、未标记、评分、主色、搜索排列；无条件显示「筛选」，长摘要省略，排序始终独立可见。弹层标签优先，保留独立滚动及双计数；评分在后，主色默认折叠。删除静态计数/排序/算法说明，保留实际异常状态。评分触控48dp。
+8. 工具栏仅显示一个筛选入口，摘要按标签、未标记、评分、主色、搜索排列；无条件显示「筛选」，长摘要省略，排序始终独立可见。弹层标签优先，保留独立滚动及双计数；评分在后，主色默认折叠。删除静态计数/排序/算法说明；目录状态保留在数据层，不在筛选弹层显示。评分触控48dp。
 
 ### 5.5 大图（DetailScreen + ZoomableImage）
 
@@ -240,7 +240,7 @@ xxx.library/
 2. 本地Room色板编码显式保留ratio=0。旧缓存曾省略0；显式scan只把缺ratio可疑ID纳入源文件重读，不推断缺值=0、不修改Eagle。源确认后缓存规范化；原源缺值按unknown，不能循环重扫。
 3. 普通分页、颜色投影、详情、全局/当前标签、itemCount及selection/share共用持久完整URI/epoch/ready门禁。generation0和旧docId不可信；block同步invalidate旧PagingSource、清选择，load前后与异步回包均验证ticket，grid/detail使用同一epoch共享cache，切epoch取消旧cache作用域。计数携带publication并在UI拒绝旧epoch replay；详情导航必须携带点击时完整root/epoch票据，先验证持久身份才收集页面；不能在首次组合时补取当前身份。旧导航、失效或跨epoch的详情隐藏并退出；启动等待身份初始化完成后才恢复导航，读取失败显示重试，不能继续按原index展示另一库。分享分块DAO查询及系统分享动作交付与扫描共用锁；building/legacy启动显示重新扫描恢复入口，同active URI也可重建。
 
-4. FilterPersistence把旧similarColor低24位RGB迁至custom25；显式新colorCondition（包括null）优先。新保存显式语义版本/容差并删除legacy；旧省略andMode仍按ALL，fresh默认ANY/touched门禁保持。新主色chip明确≥15%，这是从旧nearest/top150切换到阈值交集语义，不称结果算法兼容。
+4. FilterPersistence把旧similarColor低24位RGB迁至custom25；显式新colorCondition（包括null）优先。新保存显式语义版本/容差并删除legacy；旧省略andMode仍按ALL，fresh默认ANY/touched门禁保持。主色条件仍为占比≥15%，在折叠主色控件内显示阈值；这是从旧nearest/top150切换到阈值交集语义，不称结果算法兼容。
 5. 自选色仅接受六个ASCII十六进制字符，不接受正负号、前缀或空白；输入无效时不可提交颜色。
 
 ### 5.9 当前范围主色补算（M5c2）
